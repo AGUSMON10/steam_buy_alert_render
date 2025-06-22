@@ -87,17 +87,17 @@ def enviar_telegram(mensaje):
 # 🔁 Lógica de escaneo
 def escanear():
     for url, precio_minimo in skins_a_vigilar.items():
-        print(f"[INFO] Revisando: {url}")
+        print(f"[INFO] Revisando: {url}", flush=True)
         item_nameid = obtener_item_nameid(url)
         if item_nameid is None:
-            print(f"[ERROR] No se pudo obtener item_nameid para {url}")
+            print(f"[ERROR] No se pudo obtener item_nameid para {url}", flush=True)
             continue
 
         oferta = obtener_buy_order_preciso(item_nameid)
         if oferta is None:
             print(f"[INFO] No hay datos de buy order para: {url}")
         else:
-            print(f"[INFO] Buy order actual: {oferta:.2f} USD")
+            print(f"[INFO] Buy order actual: {oferta:.2f} USD", flush=True)
             ultima_alerta = notificados.get(url)
             if oferta >= precio_minimo and (ultima_alerta is None or oferta > ultima_alerta):
                 mensaje = (
