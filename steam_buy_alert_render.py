@@ -112,7 +112,7 @@ def escanear():
 
 def ciclo_escaneo():
     while True:
-        print("\n🔄 Buscando pedidos de compra (Steam histogram)...\n")
+        print("\n🔄 Buscando pedidos de compra (Steam histogram)...\n", flush=True)
         estado_app["ultimo_escaneo"] = time.strftime("%Y-%m-%d %H:%M:%S")
         escanear()
         time.sleep(90)
