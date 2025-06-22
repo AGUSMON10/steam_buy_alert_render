@@ -15,7 +15,7 @@ if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
 
 # 🎯 Skins a monitorear
 skins_a_vigilar = {
-    "https://steamcommunity.com/market/listings/730/%E2%98%85%20Hydra%20Gloves%20%7C%20Rattler%20%28Field-Tested%29": 85.00,
+    "https://steamcommunity.com/market/listings/730/%E2%98%85%20Hydra%20Gloves%20%7C%20Rattler%20%28Field-Tested%29": 76.00,
     "https://steamcommunity.com/market/listings/730/%E2%98%85%20Bowie%20Knife%20%7C%20Boreal%20Forest%20%28Field-Tested%29": 180.00,
     "https://steamcommunity.com/market/listings/730/%E2%98%85%20Specialist%20Gloves%20%7C%20Mogul%20%28Battle-Scarred%29": 230.00,
     "https://steamcommunity.com/market/listings/730/%E2%98%85%20StatTrak%E2%84%A2%20Shadow%20Daggers%20%7C%20Scorched%20%28Field-Tested%29": 170.00
