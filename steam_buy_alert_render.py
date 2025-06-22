@@ -99,7 +99,7 @@ def escanear():
         if oferta is None:
             print(f"[INFO] No hay datos de buy order para: {url}")
         else:
-            print(f"[INFO] Buy order actual: {oferta:.2f} USD", flush=True)
+            print(f"[INFO] Pedido de Compra actual: {oferta:.2f} USD", flush=True)
             ultima_alerta = notificados.get(url)
             if oferta >= precio_minimo and (ultima_alerta is None or oferta > ultima_alerta):
                 mensaje = (
