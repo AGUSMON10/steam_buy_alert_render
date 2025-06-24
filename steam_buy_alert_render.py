@@ -5,6 +5,14 @@ import os
 import threading
 from flask import Flask, jsonify
 
+import builtins
+original_print = print
+def print(*args, **kwargs):
+    kwargs["flush"] = True
+    return original_print(*args, **kwargs)
+builtins.print = print
+
+
 # ⚙️ Configuración desde variables de entorno
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
@@ -51,28 +59,51 @@ def iniciar_servidor():
 def obtener_item_nameid(url_item):
     try:
         r = requests.get(url_item, headers=HEADERS)
+        if r.status_code == 429:
+            print(f"[WARN] HTTP 429 en item_nameid para {url_item}, esperando 5 minutos...", flush=True)
+            time.sleep(300)
+            return None
         if r.status_code == 200:
+            # Patrón principal
             match = re.search(r"Market_LoadOrderSpread\(\s*(\d+)\s*\)", r.text)
             if match:
                 return match.group(1)
+            # Fallbacks
+            fallbacks = [
+                r'item_nameid\\":\\"(\d+)\\"',
+                r'"item_nameid":"(\d+)"',
+                r"itemordershistogram\?language=english&currency=1&item_nameid=(\d+)"
+            ]
+            for pattern in fallbacks:
+                fallback = re.search(pattern, r.text)
+                if fallback:
+                    print(f"[INFO] item_nameid obtenido con fallback: {pattern}", flush=True)
+                    return fallback.group(1)
+        else:
+            print(f"[ERROR] HTTP {r.status_code} al acceder a {url_item}", flush=True)
     except Exception as e:
-        print(f"[ERROR] No se pudo obtener item_nameid de {url_item}: {e}")
+        print(f"[ERROR] Excepción en item_nameid: {e}", flush=True)
         estado_app["errores"] += 1
     return None
+
 
 def obtener_buy_order_preciso(item_nameid):
     try:
         url = f"https://steamcommunity.com/market/itemordershistogram?language=english&currency=1&item_nameid={item_nameid}"
         r = requests.get(url, headers=HEADERS)
+        if r.status_code == 429:
+            print(f"[WARN] HTTP 429 en histogram. Esperando 5 minutos...", flush=True)
+            time.sleep(300)
+            return None
         if r.status_code == 200:
             data = r.json()
             if "highest_buy_order" in data:
-                centavos = int(data["highest_buy_order"])
-                return centavos / 100
+                return int(data["highest_buy_order"]) / 100
     except Exception as e:
-        print(f"[ERROR] Falló consulta itemordershistogram: {e}")
+        print(f"[ERROR] Falló consulta itemordershistogram: {e}", flush=True)
         estado_app["errores"] += 1
     return None
+
 
 def enviar_telegram(mensaje):
     try:
@@ -88,7 +119,10 @@ def enviar_telegram(mensaje):
 
 # 🔁 Lógica de escaneo
 def escanear():
-    for url, precio_minimo in skins_a_vigilar.items():
+    import random
+items = list(skins_a_vigilar.items())
+random.shuffle(items)
+for url, precio_minimo in items:
         print(f"[INFO] Revisando: {url}", flush=True)
         item_nameid = obtener_item_nameid(url)
         if item_nameid is None:
