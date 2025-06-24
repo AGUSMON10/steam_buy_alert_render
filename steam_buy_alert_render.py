@@ -3,6 +3,8 @@ import time
 import re
 import os
 import threading
+import random
+
 from flask import Flask, jsonify
 
 import builtins
@@ -24,10 +26,7 @@ if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
 # 🎯 Skins a monitorear
 skins_a_vigilar = {
     "https://steamcommunity.com/market/listings/730/%E2%98%85%20Hydra%20Gloves%20%7C%20Rattler%20%28Field-Tested%29": 80.00,
-    "https://steamcommunity.com/market/listings/730/%E2%98%85%20Bowie%20Knife%20%7C%20Boreal%20Forest%20%28Field-Tested%29": 180.00,
-    "https://steamcommunity.com/market/listings/730/%E2%98%85%20Specialist%20Gloves%20%7C%20Mogul%20%28Battle-Scarred%29": 230.00,
     "https://steamcommunity.com/market/listings/730/StatTrak%E2%84%A2%20AWP%20%7C%20Corticera%20%28Factory%20New%29": 190.00,
-    "https://steamcommunity.com/market/listings/730/%E2%98%85%20StatTrak%E2%84%A2%20Navaja%20Knife%20%7C%20Blue%20Steel%20%28Minimal%20Wear%29": 146.55,
     "https://steamcommunity.com/market/listings/730/%E2%98%85%20StatTrak%E2%84%A2%20Shadow%20Daggers%20%7C%20Scorched%20%28Field-Tested%29": 162.00
 }
 
@@ -144,7 +143,7 @@ for url, precio_minimo in items:
                 )
                 enviar_telegram(mensaje)
                 notificados[url] = oferta
-        time.sleep(2)
+        time.sleep(3)
 
 def ciclo_escaneo():
     while True:
