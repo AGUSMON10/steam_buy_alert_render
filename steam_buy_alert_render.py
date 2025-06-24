@@ -117,22 +117,23 @@ def enviar_telegram(mensaje):
         estado_app["errores"] += 1
 
 # 🔁 Lógica de escaneo
+
 def escanear():
-    import random
-items = list(skins_a_vigilar.items())
-random.shuffle(items)
-for url, precio_minimo in items:
-        print(f"[INFO] Revisando: {url}", flush=True)
+    items = list(skins_a_vigilar.items())
+    random.shuffle(items)
+    
+    for url, precio_minimo in items:
+        print(f"[INFO] Revisando: {url}")
         item_nameid = obtener_item_nameid(url)
         if item_nameid is None:
-            print(f"[ERROR] No se pudo obtener item_nameid para {url}", flush=True)
+            print(f"[ERROR] No se pudo obtener item_nameid para {url}")
             continue
 
         oferta = obtener_buy_order_preciso(item_nameid)
         if oferta is None:
             print(f"[INFO] No hay datos de buy order para: {url}")
         else:
-            print(f"[INFO] Pedido de Compra actual: {oferta:.2f} USD", flush=True)
+            print(f"[INFO] Pedido de Compra actual: {oferta:.2f} USD")
             ultima_alerta = notificados.get(url)
             if oferta >= precio_minimo and (ultima_alerta is None or oferta > ultima_alerta):
                 mensaje = (
@@ -144,6 +145,7 @@ for url, precio_minimo in items:
                 enviar_telegram(mensaje)
                 notificados[url] = oferta
         time.sleep(3)
+
 
 def ciclo_escaneo():
     while True:
