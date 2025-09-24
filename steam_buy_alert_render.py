@@ -25,9 +25,11 @@ if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
 
 # 🎯 Skins a monitorear
 skins_a_vigilar = {
-    "https://steamcommunity.com/market/listings/730/%E2%98%85%20StatTrak%E2%84%A2%20Falchion%20Knife%20%7C%20Black%20Laminate%20%28Well-Worn%29": 215.00,
-    "https://steamcommunity.com/market/listings/730/%E2%98%85%20StatTrak%E2%84%A2%20Shadow%20Daggers%20%7C%20Freehand%20%28Minimal%20Wear%29": 205.00,
-    "https://steamcommunity.com/market/listings/730/%E2%98%85%20StatTrak%E2%84%A2%20Paracord%20Knife%20%7C%20Ultraviolet%20%28Field-Tested%29": 210.00
+    "https://steamcommunity.com/market/listings/730/%E2%98%85%20Falchion%20Knife%20%7C%20Black%20Laminate%20%28Factory%20New%29": 286.00,
+    "https://steamcommunity.com/market/listings/730/%E2%98%85%20StatTrak%E2%84%A2%20Falchion%20Knife%20%7C%20Black%20Laminate%20%28Factory%20New%29": 300.00,
+    "https://steamcommunity.com/market/listings/730/%E2%98%85%20StatTrak%E2%84%A2%20Shadow%20Daggers%20%7C%20Freehand%20%28Minimal%20Wear%29": 130.00,
+    "https://steamcommunity.com/market/listings/730/AWP%20%7C%20Asiimov%20%28Well-Worn%29": 195.00,
+    "https://steamcommunity.com/market/listings/730/%E2%98%85%20Specialist%20Gloves%20%7C%20Crimson%20Web%20%28Battle-Scarred%29": 280.00
 }
 
 notificados = {}
@@ -144,7 +146,7 @@ def escanear():
                 )
                 enviar_telegram(mensaje)
                 notificados[url] = oferta
-        time.sleep(3)
+        time.sleep(2)
 
 
 def ciclo_escaneo():
@@ -152,7 +154,7 @@ def ciclo_escaneo():
         print("\n🔄 Buscando pedidos de compra (Steam histogram)...\n", flush=True)
         estado_app["ultimo_escaneo"] = time.strftime("%Y-%m-%d %H:%M:%S")
         escanear()
-        time.sleep(90)
+        time.sleep(70)
 
 # 🚀 Inicio de hilos
 if __name__ == "__main__":
