@@ -54,7 +54,9 @@ def home():
 
 def iniciar_servidor():
     print("[INFO] Iniciando servidor web en puerto 8080...")
-    app.run(host="0.0.0.0", port=8080)
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host="0.0.0.0", port=port)
+
 
 # 🔎 Funciones Steam
 def obtener_item_nameid(url_item):
