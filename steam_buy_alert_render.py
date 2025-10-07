@@ -25,11 +25,11 @@ if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
 
 # 🎯 Skins a monitorear
 skins_a_vigilar = {
-    "https://steamcommunity.com/market/listings/730/%E2%98%85%20Falchion%20Knife%20%7C%20Black%20Laminate%20%28Factory%20New%29": 286.00,
-    "https://steamcommunity.com/market/listings/730/%E2%98%85%20StatTrak%E2%84%A2%20Falchion%20Knife%20%7C%20Black%20Laminate%20%28Factory%20New%29": 300.00,
-    "https://steamcommunity.com/market/listings/730/%E2%98%85%20StatTrak%E2%84%A2%20Shadow%20Daggers%20%7C%20Freehand%20%28Minimal%20Wear%29": 195.00,
-    "https://steamcommunity.com/market/listings/730/AWP%20%7C%20Asiimov%20%28Well-Worn%29": 130.00,
-    "https://steamcommunity.com/market/listings/730/%E2%98%85%20Specialist%20Gloves%20%7C%20Crimson%20Web%20%28Battle-Scarred%29": 280.00
+    "https://steamcommunity.com/market/listings/730/%E2%98%85%20Falchion%20Knife%20%7C%20Black%20Laminate%20%28Factory%20New%29": 268.00,
+    "https://steamcommunity.com/market/listings/730/%E2%98%85%20StatTrak%E2%84%A2%20Falchion%20Knife%20%7C%20Black%20Laminate%20%28Factory%20New%29": 290.00,
+    "https://steamcommunity.com/market/listings/730/%E2%98%85%20StatTrak%E2%84%A2%20Shadow%20Daggers%20%7C%20Freehand%20%28Minimal%20Wear%29": 170.00,
+    "https://steamcommunity.com/market/listings/730/AWP%20%7C%20Asiimov%20%28Well-Worn%29": 121.00,
+    "https://steamcommunity.com/market/listings/730/%E2%98%85%20Specialist%20Gloves%20%7C%20Crimson%20Web%20%28Battle-Scarred%29": 270.00
 }
 
 notificados = {}
