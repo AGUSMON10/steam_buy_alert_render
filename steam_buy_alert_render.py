@@ -25,9 +25,10 @@ if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
 
 # 🎯 Skins a monitorear
 skins_a_vigilar = {
-    "https://steamcommunity.com/market/listings/730/%E2%98%85%20StatTrak%E2%84%A2%20Shadow%20Daggers%20%7C%20Autotronic%20%28Minimal%20Wear%29": 133.00,
-    "https://steamcommunity.com/market/listings/730/AK-47%20%7C%20Inheritance%20%28Field-Tested%29": 80.00,
-    "https://steamcommunity.com/market/listings/730/%E2%98%85%20Specialist%20Gloves%20%7C%20Crimson%20Web%20%28Battle-Scarred%29": 180.00
+    "https://steamcommunity.com/market/listings/730/%E2%98%85%20StatTrak%E2%84%A2%20Ursus%20Knife%20%7C%20Damascus%20Steel%20%28Minimal%20Wear%29": 189.00,
+    "https://steamcommunity.com/market/listings/730/%E2%98%85%20Hand%20Wraps%20%7C%20Overprint%20%28Field-Tested%29": 260.00,
+    "https://steamcommunity.com/market/listings/730/%E2%98%85%20Stiletto%20Knife%20%7C%20Stained%20%28Minimal%20Wear%29": 360.00,
+    "https://steamcommunity.com/market/listings/730/%E2%98%85%20Flip%20Knife%20%7C%20Damascus%20Steel%20%28Minimal%20Wear%29": 220.00
 }
 
 notificados = {}
