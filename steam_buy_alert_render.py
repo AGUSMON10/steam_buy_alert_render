@@ -25,11 +25,11 @@ if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
 
 # 🎯 Skins a monitorear
 skins_a_vigilar = {
-    "https://steamcommunity.com/market/listings/730/%E2%98%85%20Specialist%20Gloves%20%7C%20Crimson%20Web%20%28Battle-Scarred%29": 230.00,
-    "https://steamcommunity.com/market/listings/730/%E2%98%85%20Hand%20Wraps%20%7C%20Overprint%20%28Field-Tested%29": 194.00,
-    "https://steamcommunity.com/market/listings/730/%E2%98%85%20Flip%20Knife%20%7C%20Damascus%20Steel%20%28Minimal%20Wear%29": 194.00,
-    "https://steamcommunity.com/market/listings/730/%E2%98%85%20StatTrak%E2%84%A2%20Ursus%20Knife%20%7C%20Damascus%20Steel%20%28Minimal%20Wear%29": 175.00,
-    "https://steamcommunity.com/market/listings/730/%E2%98%85%20Bowie%20Knife%20%7C%20Autotronic%20%28Well-Worn%29": 140.00
+    "https://steamcommunity.com/market/listings/730/%E2%98%85%20StatTrak%E2%84%A2%20Ursus%20Knife%20%7C%20Damascus%20Steel%20%28Minimal%20Wear%29": 150.00,
+    "https://steamcommunity.com/market/listings/730/%E2%98%85%20Bowie%20Knife%20%7C%20Autotronic%20%28Well-Worn%29": 130.00,
+    "https://steamcommunity.com/market/listings/730/%E2%98%85%20StatTrak%E2%84%A2%20Huntsman%20Knife%20%7C%20Damascus%20Steel%20%28Field-Tested%29": 160.00,
+    "https://steamcommunity.com/market/listings/730/%E2%98%85%20StatTrak%E2%84%A2%20Falchion%20Knife%20%7C%20Autotronic%20%28Minimal%20Wear%29": 215.00,
+    "https://steamcommunity.com/market/listings/730/%E2%98%85%20Specialist%20Gloves%20%7C%20Crimson%20Web%20%28Battle-Scarred%29": 200.00
 }
 
 notificados = {}
