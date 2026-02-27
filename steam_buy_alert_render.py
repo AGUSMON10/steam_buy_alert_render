@@ -4,7 +4,7 @@ import re
 import os
 import threading
 import random
-
+from urllib.parse import unquote
 from flask import Flask, jsonify
 
 import builtins
@@ -150,8 +150,8 @@ def escanear():
     random.shuffle(items)
     
     for url, precio_minimo in items:
-        # Obtener nombre más legible
-        nombre_skin = url.split("/730/")[1]
+        # Obtener nombre legible del skin
+        nombre_skin = unquote(url.split("/730/")[1])
         print(f"[INFO] Revisando: {nombre_skin}")
 
         # Cachear item_nameid
