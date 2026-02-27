@@ -33,9 +33,14 @@ skins_a_vigilar = {
 }
 
 notificados = {}
+item_ids_cache = {}
+
 HEADERS = {
     "User-Agent": "Mozilla/5.0"
 }
+
+session = requests.Session()
+session.headers.update(HEADERS)
 
 # 🧠 Estado general
 estado_app = {"ultimo_escaneo": None, "errores": 0}
@@ -61,50 +66,68 @@ def iniciar_servidor():
 # 🔎 Funciones Steam
 def obtener_item_nameid(url_item):
     try:
-        r = requests.get(url_item, headers=HEADERS)
+        r = session.get(url_item, timeout=15)
+
         if r.status_code == 429:
-            print(f"[WARN] HTTP 429 en item_nameid para {url_item}, esperando 5 minutos...", flush=True)
-            time.sleep(300)
+            espera = random.randint(300, 360)
+            print(f"[WARN] HTTP 429 en item_nameid. Esperando {espera} segundos...")
+            time.sleep(espera)
             return None
+
         if r.status_code == 200:
             # Patrón principal
             match = re.search(r"Market_LoadOrderSpread\(\s*(\d+)\s*\)", r.text)
             if match:
                 return match.group(1)
+
             # Fallbacks
             fallbacks = [
                 r'item_nameid\\":\\"(\d+)\\"',
                 r'"item_nameid":"(\d+)"',
                 r"itemordershistogram\?language=english&currency=1&item_nameid=(\d+)"
             ]
+
             for pattern in fallbacks:
                 fallback = re.search(pattern, r.text)
                 if fallback:
-                    print(f"[INFO] item_nameid obtenido con fallback: {pattern}", flush=True)
+                    print(f"[INFO] item_nameid obtenido con fallback")
                     return fallback.group(1)
+
         else:
-            print(f"[ERROR] HTTP {r.status_code} al acceder a {url_item}", flush=True)
+            print(f"[ERROR] HTTP {r.status_code} al acceder a {url_item}")
+
     except Exception as e:
-        print(f"[ERROR] Excepción en item_nameid: {e}", flush=True)
+        print(f"[ERROR] Excepción en item_nameid: {e}")
         estado_app["errores"] += 1
+
     return None
 
 
 def obtener_buy_order_preciso(item_nameid):
     try:
         url = f"https://steamcommunity.com/market/itemordershistogram?language=english&currency=1&item_nameid={item_nameid}"
-        r = requests.get(url, headers=HEADERS)
+        r = session.get(url, timeout=15)
+
         if r.status_code == 429:
-            print(f"[WARN] HTTP 429 en histogram. Esperando 5 minutos...", flush=True)
-            time.sleep(300)
+            espera = random.randint(300, 360)
+            print(f"[WARN] HTTP 429 en histogram. Esperando {espera} segundos...")
+            time.sleep(espera)
             return None
+
         if r.status_code == 200:
             data = r.json()
             if "highest_buy_order" in data:
                 return int(data["highest_buy_order"]) / 100
+            else:
+                print(f"[INFO] No se encontró highest_buy_order para item_nameid {item_nameid}")
+
+        else:
+            print(f"[ERROR] HTTP {r.status_code} en itemordershistogram para item_nameid {item_nameid}")
+
     except Exception as e:
-        print(f"[ERROR] Falló consulta itemordershistogram: {e}", flush=True)
+        print(f"[ERROR] Falló consulta itemordershistogram: {e}")
         estado_app["errores"] += 1
+
     return None
 
 
@@ -127,28 +150,43 @@ def escanear():
     random.shuffle(items)
     
     for url, precio_minimo in items:
-        print(f"[INFO] Revisando: {url}")
-        item_nameid = obtener_item_nameid(url)
+        # Obtener nombre más legible
+        nombre_skin = url.split("/730/")[1]
+        print(f"[INFO] Revisando: {nombre_skin}")
+
+        # Cachear item_nameid
+        if url in item_ids_cache:
+            item_nameid = item_ids_cache[url]
+        else:
+            item_nameid = obtener_item_nameid(url)
+            item_ids_cache[url] = item_nameid
+
         if item_nameid is None:
-            print(f"[ERROR] No se pudo obtener item_nameid para {url}")
+            print(f"[ERROR] No se pudo obtener item_nameid para {nombre_skin}")
             continue
 
+        # Consultar buy order
         oferta = obtener_buy_order_preciso(item_nameid)
         if oferta is None:
-            print(f"[INFO] No hay datos de buy order para: {url}")
+            print(f"[INFO] No hay datos de buy order para: {nombre_skin}")
         else:
-            print(f"[INFO] Pedido de Compra actual: {oferta:.2f} USD")
+            diferencia = precio_minimo - oferta
+            print(f"[INFO] Buy Order: {oferta:.2f} USD | Tu mínimo: {precio_minimo:.2f} USD | Faltan: {diferencia:.2f} USD")
+
+            # Enviar alerta si supera el mínimo
             ultima_alerta = notificados.get(url)
             if oferta >= precio_minimo and (ultima_alerta is None or oferta > ultima_alerta):
                 mensaje = (
                     f"💰 ¡Pedido de compra detectado!\n"
-                    f"{url}\n"
+                    f"{nombre_skin}\n"
                     f"👛 Pedido de compra: {oferta:.2f} USD\n"
                     f"🎯 Tu mínimo: {precio_minimo:.2f} USD"
                 )
                 enviar_telegram(mensaje)
                 notificados[url] = oferta
-        time.sleep(2)
+
+        # Delay humano entre requests
+        time.sleep(random.uniform(2.0, 4.5))
 
 
 def ciclo_escaneo():
