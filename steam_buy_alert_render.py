@@ -25,7 +25,8 @@ if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
 
 # 🎯 Skins a monitorear
 skins_a_vigilar = {
-    "https://steamcommunity.com/market/listings/730/%E2%98%85%20StatTrak%E2%84%A2%20Ursus%20Knife%20%7C%20Damascus%20Steel%20%28Minimal%20Wear%29": 158.00,
+    "https://steamcommunity.com/market/listings/730/%E2%98%85%20StatTrak%E2%84%A2%20Falchion%20Knife%20%7C%20Lore%20%28Minimal%20Wear%29": 245.00,
+    "https://steamcommunity.com/market/listings/730/%E2%98%85%20StatTrak%E2%84%A2%20Bowie%20Knife%20%7C%20Autotronic%20%28Minimal%20Wear%29": 200.00,
     "https://steamcommunity.com/market/listings/730/%E2%98%85%20StatTrak%E2%84%A2%20Nomad%20Knife%20%7C%20Ultraviolet%20%28Field-Tested%29": 200.00,
     "https://steamcommunity.com/market/listings/730/%E2%98%85%20StatTrak%E2%84%A2%20Falchion%20Knife%20%7C%20Freehand%20%28Minimal%20Wear%29": 160.00,
     "https://steamcommunity.com/market/listings/730/%E2%98%85%20Talon%20Knife%20%7C%20Stained%20%28Field-Tested%29": 500.00,
