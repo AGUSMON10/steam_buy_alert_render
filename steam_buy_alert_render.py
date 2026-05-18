@@ -1,10 +1,8 @@
 import requests
 import time
-import re
 import os
 import threading
 import random
-from urllib.parse import unquote
 from flask import Flask, jsonify
 
 import builtins
@@ -25,19 +23,45 @@ if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
 
 # 🎯 Skins a monitorear
 skins_a_vigilar = {
-    "https://steamcommunity.com/market/listings/730/%E2%98%85%20StatTrak%E2%84%A2%20Bowie%20Knife%20%7C%20Autotronic%20%28Minimal%20Wear%29": 200.00,
-    "https://steamcommunity.com/market/listings/730/%E2%98%85%20StatTrak%E2%84%A2%20Nomad%20Knife%20%7C%20Ultraviolet%20%28Field-Tested%29": 200.00,
-    "https://steamcommunity.com/market/listings/730/%E2%98%85%20Specialist%20Gloves%20%7C%20Crimson%20Web%20%28Battle-Scarred%29": 180.00,
-    "https://steamcommunity.com/market/listings/730/%E2%98%85%20StatTrak%E2%84%A2%20Falchion%20Knife%20%7C%20Lore%20%28Well-Worn%29": 180.00,
-    "https://steamcommunity.com/market/listings/730/%E2%98%85%20Bowie%20Knife%20%7C%20Black%20Laminate%20%28Factory%20New%29": 170.00,
-    "https://steamcommunity.com/market/listings/730/%E2%98%85%20Paracord%20Knife%20%7C%20Crimson%20Web%20%28Minimal%20Wear%29": 200.00
+    "176052508": {
+        "nombre": "★ StatTrak™ Bowie Knife | Autotronic (Minimal Wear)",
+        "minimo": 200.00
+    },
+
+    "176054625": {
+        "nombre": "★ StatTrak™ Nomad Knife | Ultraviolet (Field-Tested)",
+        "minimo": 200.00
+    },
+
+    "176049169": {
+        "nombre": "★ Specialist Gloves | Crimson Web (Battle-Scarred)",
+        "minimo": 180.00
+    },
+
+    "176055384": {
+        "nombre": "★ StatTrak™ Falchion Knife | Lore (Well-Worn)",
+        "minimo": 180.00
+    },
+
+    "176051230": {
+        "nombre": "★ Bowie Knife | Black Laminate (Factory New)",
+        "minimo": 170.00
+    },
+
+    "176056741": {
+        "nombre": "★ Paracord Knife | Crimson Web (Minimal Wear)",
+        "minimo": 200.00
+    }
 }
 
 notificados = {}
-item_ids_cache = {}
 
 HEADERS = {
-    "User-Agent": "Mozilla/5.0"
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/136.0.0.0 Safari/537.36"
+    )
 }
 
 session = requests.Session()
@@ -64,46 +88,6 @@ def iniciar_servidor():
     app.run(host="0.0.0.0", port=port)
 
 
-# 🔎 Funciones Steam
-def obtener_item_nameid(url_item):
-    try:
-        r = session.get(url_item, timeout=15)
-
-        if r.status_code == 429:
-            espera = random.randint(300, 360)
-            print(f"[WARN] HTTP 429 en item_nameid. Esperando {espera} segundos...")
-            time.sleep(espera)
-            return None
-
-        if r.status_code == 200:
-            # Patrón principal
-            match = re.search(r"Market_LoadOrderSpread\(\s*(\d+)\s*\)", r.text)
-            if match:
-                return match.group(1)
-
-            # Fallbacks
-            fallbacks = [
-                r'item_nameid\\":\\"(\d+)\\"',
-                r'"item_nameid":"(\d+)"',
-                r"itemordershistogram\?language=english&currency=1&item_nameid=(\d+)"
-            ]
-
-            for pattern in fallbacks:
-                fallback = re.search(pattern, r.text)
-                if fallback:
-                    print(f"[INFO] item_nameid obtenido con fallback")
-                    return fallback.group(1)
-
-        else:
-            print(f"[ERROR] HTTP {r.status_code} al acceder a {url_item}")
-
-    except Exception as e:
-        print(f"[ERROR] Excepción en item_nameid: {e}")
-        estado_app["errores"] += 1
-
-    return None
-
-
 def obtener_buy_order_preciso(item_nameid):
     try:
         url = f"https://steamcommunity.com/market/itemordershistogram?language=english&currency=1&item_nameid={item_nameid}"
@@ -116,7 +100,12 @@ def obtener_buy_order_preciso(item_nameid):
             return None
 
         if r.status_code == 200:
-            data = r.json()
+            try:
+                data = r.json()
+                print(data)
+            except:
+                print("[ERROR] Steam devolvió respuesta inválida")
+                return None
             if "highest_buy_order" in data:
                 return int(data["highest_buy_order"]) / 100
             else:
@@ -149,45 +138,46 @@ def enviar_telegram(mensaje):
 def escanear():
     items = list(skins_a_vigilar.items())
     random.shuffle(items)
-    
-    for url, precio_minimo in items:
-        # Obtener nombre legible del skin
-        nombre_skin = unquote(url.split("/730/")[1])
+
+    for item_nameid, info in items:
+
+        nombre_skin = info["nombre"]
+        precio_minimo = info["minimo"]
+
         print(f"[INFO] Revisando: {nombre_skin}")
 
-        # Cachear item_nameid
-        if url in item_ids_cache:
-            item_nameid = item_ids_cache[url]
-        else:
-            item_nameid = obtener_item_nameid(url)
-            item_ids_cache[url] = item_nameid
-
-        if item_nameid is None:
-            print(f"[ERROR] No se pudo obtener item_nameid para {nombre_skin}")
-            continue
-
-        # Consultar buy order
         oferta = obtener_buy_order_preciso(item_nameid)
+
         if oferta is None:
             print(f"[INFO] No hay datos de buy order para: {nombre_skin}")
+
         else:
             diferencia = precio_minimo - oferta
-            print(f"[INFO] Buy Order: {oferta:.2f} USD | Tu mínimo: {precio_minimo:.2f} USD | Faltan: {diferencia:.2f} USD")
 
-            # Enviar alerta si supera el mínimo
-            ultima_alerta = notificados.get(url)
-            if oferta >= precio_minimo and (ultima_alerta is None or oferta > ultima_alerta):
+            print(
+                f"[INFO] Buy Order: {oferta:.2f} USD | "
+                f"Tu mínimo: {precio_minimo:.2f} USD | "
+                f"Faltan: {diferencia:.2f} USD"
+            )
+
+            ultima_alerta = notificados.get(item_nameid)
+
+            if oferta >= precio_minimo and (
+                ultima_alerta is None or oferta > ultima_alerta
+            ):
+
                 mensaje = (
                     f"💰 ¡Pedido de compra detectado!\n"
                     f"{nombre_skin}\n"
                     f"👛 Pedido de compra: {oferta:.2f} USD\n"
                     f"🎯 Tu mínimo: {precio_minimo:.2f} USD"
                 )
-                enviar_telegram(mensaje)
-                notificados[url] = oferta
 
-        # Delay humano entre requests
-        time.sleep(random.uniform(2.0, 4.5))
+                enviar_telegram(mensaje)
+
+                notificados[item_nameid] = oferta
+
+        time.sleep(random.uniform(6.0, 12.0))
 
 
 def ciclo_escaneo():
@@ -195,7 +185,7 @@ def ciclo_escaneo():
         print("\n🔄 Buscando pedidos de compra (Steam histogram)...\n", flush=True)
         estado_app["ultimo_escaneo"] = time.strftime("%Y-%m-%d %H:%M:%S")
         escanear()
-        time.sleep(70)
+        time.sleep(random.uniform(180, 300))
 
 # 🚀 Inicio de hilos
 if __name__ == "__main__":
