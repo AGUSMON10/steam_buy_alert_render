@@ -107,20 +107,19 @@ def obtener_item_nameid(nombre_skin):
 
         inspect_link = asset.get("asset_description", {}).get("market_actions", [])
 
-        market_url = f"https://steamcommunity.com/market/listings/730/{market_hash_name}"
+        asset_link = asset.get("sell_listings")
 
-        r2 = session.get(market_url, timeout=15)
+        if not asset_link:
+            print(f"[ERROR] No se encontró sell_listings")
+            return None
 
-        match = re.search(r"Market_LoadOrderSpread\(\s*(\d+)\s*\)", r2.text)
+        item_nameid = str(asset_link)
 
-        if match:
-            item_nameid = match.group(1)
+        item_ids_cache[nombre_skin] = item_nameid
 
-            item_ids_cache[nombre_skin] = item_nameid
+        print(f"[INFO] item_nameid cacheado: {item_nameid}")
 
-            print(f"[INFO] item_nameid cacheado: {item_nameid}")
-
-            return item_nameid
+        return item_nameid
 
     except Exception as e:
         print(f"[ERROR] obtener_item_nameid: {e}")
