@@ -1,6 +1,5 @@
 import requests
 import time
-import re
 import os
 import threading
 import random
@@ -32,8 +31,16 @@ skins_a_vigilar = {
     "Paracord Knife | Crimson Web Minimal": 200.00
 }
 
+ITEM_NAMEIDS = {
+    "StatTrak Bowie Knife | Autotronic Minimal": "176263307",
+    "StatTrak Nomad Knife | Ultraviolet Field": "176506919",
+    "Specialist Gloves | Crimson Web Battle": "175967417",
+    "StatTrak Falchion Knife | Lore Well": "176270332",
+    "Bowie Knife | Black Laminate Factory": "176263461",
+    "Paracord Knife | Crimson Web Minimal": "176097544"
+}
+
 notificados = {}
-item_ids_cache = {}
 
 HEADERS = {
     "User-Agent": (
@@ -66,66 +73,6 @@ def iniciar_servidor():
     port = int(os.environ.get("PORT", 8080))
     app.run(host="0.0.0.0", port=port)
     
-def obtener_item_nameid(nombre_skin):
-
-    if nombre_skin in item_ids_cache:
-        return item_ids_cache[nombre_skin]
-
-    try:
-        url = "https://steamcommunity.com/market/search/render/"
-
-        params = {
-            "query": nombre_skin,
-            "start": 0,
-            "count": 1,
-            "search_descriptions": 0,
-            "sort_column": "popular",
-            "sort_dir": "desc",
-            "appid": 730,
-            "norender": 1
-        }
-
-        r = session.get(url, params=params, timeout=15)
-
-        if r.status_code != 200:
-            print(f"[ERROR] HTTP {r.status_code} buscando item_nameid")
-            return None
-
-        data = r.json()
-
-        if not data.get("results"):
-            print(f"[ERROR] No se encontró el item: {nombre_skin}")
-            return None
-
-        asset = data["results"][0]
-
-        item_nameid = str(asset.get("sell_listings", 0))
-
-        market_hash_name = asset.get("hash_name")
-
-        print(f"[INFO] Encontrado: {market_hash_name}")
-
-        inspect_link = asset.get("asset_description", {}).get("market_actions", [])
-
-        asset_link = asset.get("sell_listings")
-
-        if not asset_link:
-            print(f"[ERROR] No se encontró sell_listings")
-            return None
-
-        item_nameid = str(asset_link)
-
-        item_ids_cache[nombre_skin] = item_nameid
-
-        print(f"[INFO] item_nameid cacheado: {item_nameid}")
-
-        return item_nameid
-
-    except Exception as e:
-        print(f"[ERROR] obtener_item_nameid: {e}")
-
-    return None
-
 def obtener_buy_order_preciso(item_nameid):
     try:
         url = f"https://steamcommunity.com/market/itemordershistogram?language=english&currency=1&item_nameid={item_nameid}"
@@ -184,7 +131,7 @@ def escanear():
 
         print(f"[INFO] Revisando: {nombre_skin}")
 
-        item_nameid = obtener_item_nameid(nombre_skin)
+        item_nameid = ITEM_NAMEIDS.get(nombre_skin)
 
         if item_nameid is None:
             print(f"[ERROR] No se pudo obtener item_nameid")
