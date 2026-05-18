@@ -24,20 +24,22 @@ if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
 # 🎯 Skins a monitorear
 skins_a_vigilar = {
     "StatTrak Bowie Knife | Autotronic Minimal": 200.00,
-    "StatTrak Nomad Knife | Ultraviolet Field": 200.00,
+    "StatTrak Falchion Knife | Lore Well": 175.00,
     "Specialist Gloves | Crimson Web Battle": 180.00,
-    "StatTrak Falchion Knife | Lore Well": 180.00,
-    "Bowie Knife | Black Laminate Factory": 170.00,
-    "Paracord Knife | Crimson Web Minimal": 200.00
+    "Falchion Knife | Ultraviolet Minimal": 180.00,
+    "StatTrak Skeleton Knife | Scorched Fiel": 220.00,
+    "Paracord Knife | Crimson Web Minimal": 200.00,
+    "StatTrak Kukri Knife | Blue Steel Minimal": 185.00
 }
 
 ITEM_NAMEIDS = {
     "StatTrak Bowie Knife | Autotronic Minimal": "176263307",
-    "StatTrak Nomad Knife | Ultraviolet Field": "176506919",
-    "Specialist Gloves | Crimson Web Battle": "175967417",
     "StatTrak Falchion Knife | Lore Well": "176270332",
-    "Bowie Knife | Black Laminate Factory": "176263461",
-    "Paracord Knife | Crimson Web Minimal": "176097544"
+    "Specialist Gloves | Crimson Web Battle": "175967417",
+    "Falchion Knife | Ultraviolet Minimal": "175880741",
+    "StatTrak Skeleton Knife | Scorched Fiel": "176097569",
+    "Paracord Knife | Crimson Web Minimal": "176097544",
+    "StatTrak Kukri Knife | Blue Steel Minimal": "176414344"
 }
 
 notificados = {}
