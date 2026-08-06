@@ -1,194 +1,825 @@
+import random
 import requests
 import time
 import os
 import threading
-import random
+import re
 from flask import Flask, jsonify
-
+from datetime import datetime
 import builtins
+
+# Lista de proxies (pegá los tuyos de Webshare)
+
+PROXIES = [
+    "http://olrliwpe:v769pjjmxnb1@130.180.232.130:8568",
+    "http://olrliwpe:v769pjjmxnb1@96.62.181.13:7225",
+    "http://olrliwpe:v769pjjmxnb1@82.29.239.219:5367",
+    "http://olrliwpe:v769pjjmxnb1@87.86.24.154:5805",
+    "http://olrliwpe:v769pjjmxnb1@31.98.15.224:5401",
+    "http://olrliwpe:v769pjjmxnb1@209.166.2.202:7863",
+    "http://olrliwpe:v769pjjmxnb1@45.58.228.57:5729",
+    "http://olrliwpe:v769pjjmxnb1@5.59.251.216:6255",
+    "http://olrliwpe:v769pjjmxnb1@9.142.218.36:6700",
+    "http://olrliwpe:v769pjjmxnb1@9.142.195.37:6205"
+]
+
+PROXY_COOLDOWN = 600  # 10 min
+PROXY_STATUS = {p: 0 for p in PROXIES}
+PROXY_FAILS = {p: 0 for p in PROXIES}
+
+# Redefinir print global con flush automático
 original_print = print
-def print(*args, **kwargs):
-    kwargs["flush"] = True
-    return original_print(*args, **kwargs)
-builtins.print = print
 
+def normalizar(texto):
 
-# ⚙️ Configuración desde variables de entorno
+    texto = texto.lower()
+
+    texto = texto.replace("★", "")
+
+    texto = texto.replace("™", "")
+
+    texto = re.sub(r"\s+", " ", texto)
+
+    return texto.strip()
+
+def es_item_valido(name):
+    name = name.lower()
+
+    blacklist = [
+        "case",
+        "key",
+        "capsule",
+        "graffiti",
+        "soundtrack",
+        "booster",
+        "package",
+        "sealed",
+        "gift"
+    ]
+
+    for b in blacklist:
+        if b in name:
+            return False
+
+    return True
+    
+def flush_print(*args, **kwargs):
+    kwargs['flush'] = True
+    timestamp = datetime.now().strftime("%H:%M:%S")
+    original_print(f"[{timestamp}]", *args, **kwargs)
+
+builtins.print = flush_print
+
+# Configuración desde variables de entorno
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
+# Verificar que las variables de entorno estén configuradas
 if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
-    print("[ERROR] Faltan TELEGRAM_BOT_TOKEN o TELEGRAM_CHAT_ID")
+    print(
+        "[ERROR] Faltan variables de entorno: TELEGRAM_BOT_TOKEN y/o TELEGRAM_CHAT_ID"
+    )
+    print("Configúralas en la herramienta de Secrets de Replit")
     exit(1)
 
-# 🎯 Skins a monitorear
+# Lista de ítems con URL y precio máximo aceptado
 skins_a_vigilar = {
-    "StatTrak Falchion Knife | Crimson Web Fiel": 229.00,
-    "Shadow Daggers | Marble Fade Minimal": 200.00,
-    "StatTrak Paracord Knife | Blue Steel Minimal": 182.00,
-    "Specialist Gloves | Crimson Web Battle": 160.00,
-    "StatTrak Paracord Knife | Blue Steel Fiel": 160.00,
-    "StatTrak Skeleton Knife | Scorched Fiel": 200.00,
-    "Paracord Knife | Crimson Web Minimal": 190.00,
-    "StatTrak Kukri Knife | Blue Steel Minimal": 182.00
+    "★ Paracord Knife | Crimson Web (Minimal Wear)": 180.00,
+    "★ StatTrak™ Paracord Knife | Blue Steel (Minimal Wear)": 170.00,
+    "★ StatTrak™ Kukri Knife | Blue Steel (Minimal Wear)": 170.00,
+    "★ Paracord Knife | Stained (Factory New)": 145.00,
+    "★ StatTrak™ Paracord Knife | Blue Steel (Field-Tested)": 145.00,
+    "★ StatTrak™ Skeleton Knife | Scorched (Field-Tested)": 207.00,
+    "★ StatTrak™ Bowie Knife | Lore (Field-Tested)": 149.00,
+    "★ StatTrak™ Paracord Knife | Crimson Web (Minimal Wear)": 200.00,
+    "★ StatTrak™ Falchion Knife | Crimson Web (Field-Tested)": 200.00,
+    "★ StatTrak™ Falchion Knife | Black Laminate (Factory New)": 140.00,
 }
 
-ITEM_NAMEIDS = {
-    "StatTrak Falchion Knife | Crimson Web Fiel": "49612097",
-    "Shadow Daggers | Marble Fade Minimal": "175881530",
-    "StatTrak Paracord Knife | Blue Steel Minimal": "176097689",
-    "Specialist Gloves | Crimson Web Battle": "175967417",
-    "StatTrak Paracord Knife | Blue Steel Fiel": "176097567",
-    "StatTrak Skeleton Knife | Scorched Fiel": "176097569",
-    "Paracord Knife | Crimson Web Minimal": "176097544",
-    "StatTrak Kukri Knife | Blue Steel Minimal": "176414344"
+ITEM_NAME_IDS = {
+    "★ Paracord Knife | Crimson Web (Minimal Wear)": 176097544,
+    "★ StatTrak™ Paracord Knife | Blue Steel (Minimal Wear)": 176097689,
+    "★ StatTrak™ Kukri Knife | Blue Steel (Minimal Wear)": 176414344,
+    "★ Paracord Knife | Stained (Factory New)": 176100379,
+    "★ StatTrak™ Paracord Knife | Blue Steel (Field-Tested)": 176097567,
+    "★ StatTrak™ Skeleton Knife | Scorched (Field-Tested)": 176097569,
+    "★ StatTrak™ Bowie Knife | Lore (Field-Tested)": 176263221,
+    "★ StatTrak™ Paracord Knife | Crimson Web (Minimal Wear)": 176105406,
+    "★ StatTrak™ Falchion Knife | Crimson Web (Field-Tested)": 49612097,
+    "★ StatTrak™ Falchion Knife | Black Laminate (Factory New)": 176283223,
 }
 
 notificados = {}
+ultimo_escaneo = None
+skins_revisadas_total = 0
+ciclo_numero = 0
+estado_app = {"activo": True, "errores": 0, "ultimo_escaneo": None}
 
-HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/136.0.0.0 Safari/537.36"
-    )
+lock = threading.Lock()
+
+# Cache temporal de precios
+price_cache = {}
+CACHE_TTL = 150  # segundos
+
+failed_counts = {}
+
+# =========================
+# ESTADÍSTICAS
+# =========================
+
+stats = {
+    "requests_steam": 0,
+    "requests_exitosas": 0,
+    "requests_fallidas": 0,
+    "cache_hits": 0,
+    "alertas_enviadas": 0,
+    "tiempo_consultas": 0.0
 }
 
-session = requests.Session()
-session.headers.update(HEADERS)
+def limpiar_cache():
 
-# 🧠 Estado general
-estado_app = {"ultimo_escaneo": None, "errores": 0}
+    ahora = time.time()
 
-# 🌐 Servidor Flask
+    with lock:
+
+        keys_a_borrar = []
+
+        for k, v in price_cache.items():
+
+            if ahora - v["timestamp"] > CACHE_TTL * 3:
+
+                keys_a_borrar.append(k)
+
+        for k in keys_a_borrar:
+
+            del price_cache[k]
+
+    print(f"[CACHE CLEAN] Eliminadas {len(keys_a_borrar)} entradas")
+
+# Crear sessions optimizadas
+def crear_session():
+
+    s = requests.Session()
+
+    adapter = requests.adapters.HTTPAdapter(
+        pool_connections=20,
+        pool_maxsize=20
+    )
+
+    s.mount("http://", adapter)
+    s.mount("https://", adapter)
+
+    return s
+
+# Una session independiente por proxy
+SESSIONS = {}
+
+for proxy in PROXIES:
+
+    SESSIONS[proxy] = crear_session()
+
+# Headers realistas
+USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/121 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/120 Safari/537.36",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/119 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:122.0) Gecko/20100101 Firefox/122.0",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 13_0) AppleWebKit/605.1.15 Version/17.0 Safari/605.1.15"
+]
+
+
+def get_headers():
+    return {
+        "User-Agent": random.choice(USER_AGENTS),
+        "Accept-Language": "en-US,en;q=0.9",
+        "Accept": "application/json,text/javascript,*/*;q=0.1",
+        "Referer": "https://steamcommunity.com/market/",
+        "Connection": "keep-alive"
+    }
+
+def obtener_proxy():
+
+    ahora = time.time()
+
+    disponibles = [
+        p for p, t in PROXY_STATUS.items()
+        if t <= ahora
+    ]
+
+    if not disponibles:
+
+        cooldown_activos = [
+            p for p, t in PROXY_STATUS.items()
+            if t > ahora
+        ]
+
+        print(
+            f"[WARN] Sin proxies disponibles | "
+            f"Cooldown: {len(cooldown_activos)}"
+        )
+
+        # reset global si TODOS están en cooldown
+        if len(cooldown_activos) == len(PROXIES):
+
+            print("[WARN] Todos los proxies en cooldown")
+
+            return None
+
+        return None
+
+    return random.choice(disponibles)
+
+# Crear app Flask para UptimeRobot
 app = Flask(__name__)
 
 @app.route("/")
 def home():
+    """Endpoint para UptimeRobot"""
     return jsonify({
         "status": "ok",
-        "mensaje": "Script activo monitoreando Steam",
+        "mensaje": "Steam Alert Bot está activo",
         "ultimo_escaneo": estado_app["ultimo_escaneo"],
-        "errores": estado_app["errores"]
+        "errores": estado_app["errores"],
+        "timestamp": datetime.now().isoformat()
     })
 
-def iniciar_servidor():
-    print("[INFO] Iniciando servidor web en puerto 8080...")
-    port = int(os.environ.get("PORT", 8080))
-    app.run(host="0.0.0.0", port=port)
+@app.route('/status')
+def status():
+    """Endpoint detallado de estado"""
+    return jsonify({
+        "activo": estado_app["activo"],
+        "ultimo_escaneo": estado_app["ultimo_escaneo"],
+        "errores_totales": estado_app["errores"],
+        "items_vigilados": len(skins_a_vigilar),
+        "notificaciones_enviadas": len(notificados)
+    })
     
-def obtener_buy_order_preciso(item_nameid):
+def buscar_precio(market_hash_name, session, proxy):
+
+    ahora = time.time()
+
+    # =========================
+    # CACHE
+    # =========================
+
+    with lock:
+        cache_data = price_cache.get(market_hash_name)
+
+    if cache_data:
+
+        if ahora - cache_data["timestamp"] < CACHE_TTL:
+
+            with lock:
+                stats["cache_hits"] += 1
+
+            print(
+                f"[CACHE HIT] "
+                f"{market_hash_name} -> "
+                f"${cache_data['price']:.2f}"
+            )
+
+            return {
+                "price": cache_data["price"],
+                "buy_price": cache_data.get("buy_price"),
+                "name": cache_data["name"]
+            }
+
+    # =========================
+    # ITEM NAME ID
+    # =========================
+
+    item_nameid = ITEM_NAME_IDS.get(market_hash_name)
+
+    if not item_nameid:
+
+        print(
+            f"[ERROR] No tengo item_nameid para "
+            f"{market_hash_name}"
+        )
+
+        return {
+            "price": None,
+            "name": market_hash_name
+        }
+
+    # =========================
+    # PROXY
+    # =========================
+
+    proxies = {
+        "http": proxy,
+        "https": proxy
+    } if proxy else None
+
+    # =========================
+    # PARAMETROS STEAM
+    # =========================
+
+    params = {
+        "country": "US",
+        "language": "english",
+        "currency": 1,
+        "item_nameid": str(item_nameid),
+        "two_factor": 0,
+        "norender": 1
+    }
+
     try:
-        url = f"https://steamcommunity.com/market/itemordershistogram?language=english&currency=1&item_nameid={item_nameid}"
-        r = session.get(url, timeout=15)
+
+        # =========================
+        # HISTOGRAMA
+        # =========================
+
+        inicio_request = time.time()
+
+        with lock:
+            stats["requests_steam"] += 1
+
+        r = session.get(
+            "https://steamcommunity.com/market/itemordershistogram",
+            params=params,
+            headers=get_headers(),
+            timeout=(8, 15),
+            proxies=proxies
+        )
+
+        duracion_request = time.time() - inicio_request
+
+        with lock:
+            stats["tiempo_consultas"] += duracion_request
+
+        # =========================
+        # RATE LIMIT
+        # =========================
 
         if r.status_code == 429:
-            espera = random.randint(300, 360)
-            print(f"[WARN] HTTP 429 en histogram. Esperando {espera} segundos...")
-            time.sleep(espera)
+
+            with lock:
+
+                PROXY_FAILS[proxy] += 1
+
+                cooldown = min(
+                    30 * (2 ** (PROXY_FAILS[proxy] - 1)),
+                    600
+                )
+
+                PROXY_STATUS[proxy] = (
+                    time.time() + cooldown
+                )
+
+                fails = PROXY_FAILS[proxy]
+
+            print(f"[WARN] Steam limitó una consulta. Reintentando...")
+
             return None
 
-        if r.status_code == 200:
-            try:
-                data = r.json()
-            except:
-                print("[ERROR] Steam devolvió respuesta inválida")
-                return None
-            if (
-                "highest_buy_order" in data and
-                data["highest_buy_order"] is not None
-            ):
-                return int(data["highest_buy_order"]) / 100
+        # =========================
+        # OTROS ERRORES HTTP
+        # =========================
 
-            else:
-                print(f"[INFO] No hay buy orders para item_nameid {item_nameid}")
+        if r.status_code != 200:
+
+            print(
+                f"[HTTP ERROR HISTOGRAM] "
+                f"{proxy} -> {r.status_code}"
+            )
+
+            print(
+                f"[DEBUG URL] {r.url}"
+            )
+
+            print(
+                f"[DEBUG RESPONSE] "
+                f"{r.text[:500]}"
+            )
+
+            with lock:
+                PROXY_FAILS[proxy] += 1
+                stats["requests_fallidas"] += 1
+
+            return None
+
+        # =========================
+        # JSON
+        # =========================
+
+        try:
+
+            data = r.json()
+
+        except Exception as e:
+
+            print(
+                f"[ERROR] Steam no devolvió JSON: {e}"
+            )
+
+            print(
+                f"[DEBUG] Respuesta: "
+                f"{r.text[:500]}"
+            )
+
+            return None
+
+        # =========================
+        # DEBUG
+        # =========================
+
+        # =========================
+        # STEAM SUCCESS FALSE
+        # =========================
+
+        if not data.get("success"):
+
+            with lock:
+                stats["requests_fallidas"] += 1
+
+            print(
+                f"[HISTOGRAM] Steam respondió "
+                f"success=False"
+            )
+
+            return {
+                "price": None,
+                "name": market_hash_name
+            }
+
+        with lock:
+            stats["requests_exitosas"] += 1
+
+
+                # =========================
+        # PRECIOS DIRECTOS DE STEAM
+        # =========================
+
+        sell_price_raw = data.get("sell_order_price")
+        buy_price_raw = data.get("buy_order_price")
+
+        precio = None
+        buy_price = None
+
+        # SELL
+        if sell_price_raw:
+
+            try:
+                sell_clean = re.sub(
+                    r"[^0-9.]",
+                    "",
+                    sell_price_raw
+                )
+
+                precio = float(sell_clean)
+
+            except (ValueError, TypeError):
+
+                print(
+                    f"[ERROR] No pude interpretar "
+                    f"sell_order_price: {sell_price_raw}"
+                )
+
+        # BUY
+        if buy_price_raw:
+
+            try:
+                buy_clean = re.sub(
+                    r"[^0-9.]",
+                    "",
+                    buy_price_raw
+                )
+
+                buy_price = float(buy_clean)
+
+            except (ValueError, TypeError):
+
+                print(
+                    f"[ERROR] No pude interpretar "
+                    f"buy_order_price: {buy_price_raw}"
+                )
+
+        # =========================
+        # VALIDAR SELL
+        # =========================
+
+        if precio is None or precio <= 0:
+
+            print(
+                f"[HISTOGRAM] "
+                f"No se encontró SELL válido para "
+                f"{market_hash_name}"
+            )
+
+            return {
+                "price": None,
+                "buy_price": buy_price,
+                "name": market_hash_name
+            }
+
+        # =========================
+        # LOG
+        # =========================
+
+        if buy_price is not None:
+
+            print(
+                f"[PRICE] "
+                f"{market_hash_name} -> "
+                f"SELL ${precio:.2f} | "
+                f"BUY ${buy_price:.2f}"
+            )
 
         else:
-            print(f"[ERROR] HTTP {r.status_code} en itemordershistogram para item_nameid {item_nameid}")
+
+            print(
+                f"[PRICE] "
+                f"{market_hash_name} -> "
+                f"SELL ${precio:.2f}"
+            )
+
+        # =========================
+        # CACHE
+        # =========================
+
+        with lock:
+
+            price_cache[market_hash_name] = {
+                "price": precio,
+                "buy_price": buy_price,
+                "name": market_hash_name,
+                "timestamp": time.time()
+            }
+
+            PROXY_FAILS[proxy] = 0
+            PROXY_STATUS[proxy] = 0
+
+        return {
+            "price": precio,
+            "buy_price": buy_price,
+            "name": market_hash_name
+        }
 
     except Exception as e:
-        print(f"[ERROR] Falló consulta itemordershistogram: {e}")
-        estado_app["errores"] += 1
 
-    return None
+        print(
+            f"[ERROR HISTOGRAM] "
+            f"{type(e).__name__}: {e}"
+        )
 
+        with lock:
 
+            PROXY_FAILS[proxy] += 1
+
+            if PROXY_FAILS[proxy] >= 5:
+
+                PROXY_STATUS[proxy] = (
+                    time.time() + PROXY_COOLDOWN
+                )
+
+                print(
+                    f"[PROXY COOLDOWN] "
+                    f"{proxy}"
+                )
+
+                PROXY_FAILS[proxy] = 0
+
+        return None
+        
 def enviar_telegram(mensaje):
     try:
         url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
         data = {"chat_id": TELEGRAM_CHAT_ID, "text": mensaje}
-        r = requests.post(url, data=data)
-        if r.status_code != 200:
-            print(f"[ERROR] Telegram status {r.status_code}")
-            estado_app["errores"] += 1
+        response = requests.post(url, data=data, timeout=15)
+        if response.status_code == 200:
+            print("[INFO] Mensaje enviado a Telegram exitosamente")
+        else:
+            print(
+                f"[ERROR] Error al enviar mensaje a Telegram: {response.status_code}"
+            )
     except Exception as e:
         print(f"[ERROR] No se pudo enviar el mensaje a Telegram: {e}")
         estado_app["errores"] += 1
 
-# 🔁 Lógica de escaneo
-def escanear():
+def dividir_skins_en_grupos():
 
-    items = list(skins_a_vigilar.items())
-    random.shuffle(items)
+    lista = list(skins_a_vigilar.items())
 
-    for nombre_skin, precio_minimo in items:
+    num_workers = 1
 
-        print(f"[INFO] Revisando: {nombre_skin}")
+    grupos = [[] for _ in range(num_workers)]
 
-        item_nameid = ITEM_NAMEIDS.get(nombre_skin)
+    for i, item in enumerate(lista):
 
-        if item_nameid is None:
-            print(f"[ERROR] No se pudo obtener item_nameid")
-            continue
+        grupos[i % num_workers].append(item)
 
-        oferta = obtener_buy_order_preciso(item_nameid)
+    return grupos
 
-        if oferta is None:
-            print(f"[INFO] No hay datos de buy order para: {nombre_skin}")
+def worker(grupo_skins, worker_id):
 
-        else:
+    print(f"[DEBUG] Worker {worker_id} arrancó")
 
-            diferencia = precio_minimo - oferta
+    global skins_revisadas_total
 
-            print(
-                f"[INFO] Buy Order: {oferta:.2f} USD | "
-                f"Tu mínimo: {precio_minimo:.2f} USD | "
-                f"Faltan: {diferencia:.2f} USD"
-            )
+    while estado_app["activo"]:
 
-            ultima_alerta = notificados.get(nombre_skin)
+        inicio_ciclo = time.time()
 
-            if oferta >= precio_minimo and (
-                ultima_alerta is None or oferta > ultima_alerta
-            ):
+        for skin_name, precio_max in grupo_skins:
 
-                mensaje = (
-                    f"💰 ¡Pedido de compra detectado!\n"
-                    f"{nombre_skin}\n"
-                    f"👛 Pedido de compra: {oferta:.2f} USD\n"
-                    f"🎯 Tu mínimo: {precio_minimo:.2f} USD"
+            resultado = None
+
+            MAX_INTENTOS = 1
+
+            for intento in range(MAX_INTENTOS):
+
+                proxy = obtener_proxy()
+
+                if proxy is None:
+
+                    print(
+                        f"[WARN] No hay proxy disponible para "
+                        f"{skin_name}"
+                    )
+
+                    time.sleep(15)
+
+                    continue
+
+                with lock:
+                    session = SESSIONS[proxy]
+
+                resultado = buscar_precio(
+                    skin_name,
+                    session,
+                    proxy
                 )
 
-                enviar_telegram(mensaje)
+                if resultado is not None and resultado["price"] is not None:
+                    break
 
-                notificados[nombre_skin] = oferta
+                print(
+                    f"[RETRY] "
+                    f"{skin_name} | "
+                    f"Intento {intento + 1}/{MAX_INTENTOS}"
+                )
 
-        time.sleep(random.uniform(6.0, 12.0))
+                # Espera antes del siguiente intento
+                time.sleep(random.uniform(8, 20))
 
-def ciclo_escaneo():
-    while True:
-        print("\n🔄 Buscando pedidos de compra (Steam histogram)...\n", flush=True)
-        estado_app["ultimo_escaneo"] = time.strftime("%Y-%m-%d %H:%M:%S")
-        escanear()
-        time.sleep(random.uniform(180, 300))
+            with lock:
+                skins_revisadas_total += 1
 
-# 🚀 Inicio de hilos
+            if resultado is None or resultado["price"] is None:
+                continue
+
+            precio_actual = resultado["buy_price"]
+            if precio_actual is None:
+                continue
+            nombre_real = resultado["name"]
+
+            ultima_alerta = notificados.get(skin_name)
+
+            if precio_actual >= precio_objetivo and (
+                ultima_alerta is None
+                or precio_actual < ultima_alerta
+            ):
+
+                steam_url = (
+                    "steam://openurl/https://steamcommunity.com/market/listings/730/"
+                    + requests.utils.quote(nombre_real, safe='')
+                )
+
+                enviar_telegram(
+                    f"🛒 Skin en oferta\n"
+                    f"{skin_name}\n"
+                    f"{steam_url}\n"
+                    f"💵 {precio_actual:.2f} USD\n"
+                    f"📉 Max {precio_max:.2f} USD"
+                )
+
+                notificados[skin_name] = precio_actual
+                
+                with lock:
+                    stats["alertas_enviadas"] += 1
+
+            time.sleep(random.uniform(8, 15))
+
+        estado_app["ultimo_escaneo"] = datetime.now().isoformat()
+
+        if worker_id == 0:
+
+            global ciclo_numero
+
+            ciclo_numero += 1
+
+            duracion = round(time.time() - inicio_ciclo, 2)
+
+            ahora = time.time()
+
+            proxies_activos = len([
+                p for p, t in PROXY_STATUS.items()
+                if t <= ahora
+            ])
+
+            proxies_cooldown = len([
+                p for p, t in PROXY_STATUS.items()
+                if t > ahora
+            ])
+
+            print("\n================ RESUMEN CICLO ================")
+
+            print(f"[INFO] Ciclo número: {ciclo_numero}")
+
+            print(f"[INFO] Skins totales vigiladas: {len(skins_a_vigilar)}")
+
+            print(f"[INFO] Skins revisadas: {skins_revisadas_total}")
+
+            print(f"[INFO] Requests a Steam: {stats['requests_steam']}")
+
+            print(f"[INFO] Requests exitosas: {stats['requests_exitosas']}")
+
+            print(f"[INFO] Requests fallidas: {stats['requests_fallidas']}")
+
+            print(f"[INFO] Cache hits: {stats['cache_hits']}")
+
+            print(f"[INFO] Alertas enviadas: {stats['alertas_enviadas']}")
+
+            print(f"[INFO] Proxies activos: {proxies_activos}")
+
+            print(f"[INFO] Proxies cooldown: {proxies_cooldown}")
+
+            print(f"[INFO] Cache size: {len(price_cache)}")
+
+            print(f"[INFO] Duración ciclo: {duracion} segundos")
+
+            if stats["requests_steam"] > 0:
+
+                promedio = (
+                    stats["tiempo_consultas"] /
+                    stats["requests_steam"]
+                )
+
+                print(
+                    f"[INFO] Tiempo promedio/request: "
+                    f"{promedio:.2f}s"
+                )
+
+            limpiar_cache()
+
+            print("================================================\n")
+
+            skins_a_eliminar = []
+
+            for skin, fails in failed_counts.items():
+
+                if fails >= 50:
+
+                    print("\n[INFO] Skin desactivada por demasiados fallos:")
+                    print(skin)
+
+                    skins_a_eliminar.append(skin)
+
+            # eliminar skins problemáticas
+            for skin_name in skins_a_eliminar:
+
+                if skin_name in skins_a_vigilar:
+
+                    del skins_a_vigilar[skin_name]
+
+                    print(f"[INFO] Eliminada del monitoreo: {skin_name}")
+
+
+            skins_revisadas_total = 0
+
+            with lock:
+                stats["requests_steam"] = 0
+                stats["requests_exitosas"] = 0
+                stats["requests_fallidas"] = 0
+                stats["cache_hits"] = 0
+
+        time.sleep(random.uniform(15, 30))
+
+# 🔁 Ejecutar el servidor Flask en hilo separado
+def iniciar_servidor():
+    app.run(host="0.0.0.0", port=8080, threaded=True, use_reloader=False)
+
 if __name__ == "__main__":
-    hilo_web = threading.Thread(target=iniciar_servidor)
-    hilo_scan = threading.Thread(target=ciclo_escaneo)
 
-    hilo_web.start()
-    hilo_scan.start()
+    grupos = dividir_skins_en_grupos()
 
-    hilo_web.join()
-    hilo_scan.join()
+    print("=== DEBUG SYSTEM ===")
+    print("Skins:", len(skins_a_vigilar))
+    print("Proxies:", len(PROXIES))
+    print("Grupos:", len(dividir_skins_en_grupos()))
+    print("====================")
+
+    threads = []
+
+    for i, grupo in enumerate(grupos):
+        t = threading.Thread(target=worker, args=(grupo, i))
+        t.start()
+        threads.append(t)
+
+    servidor_thread = threading.Thread(target=iniciar_servidor)
+    servidor_thread.start()
+
+    for t in threads:
+        t.join()
+    servidor_thread.join()
