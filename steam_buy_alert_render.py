@@ -93,7 +93,7 @@ skins_a_vigilar = {
     "★ StatTrak™ Bowie Knife | Lore (Field-Tested)": 149.00,
     "★ StatTrak™ Paracord Knife | Crimson Web (Minimal Wear)": 200.00,
     "★ StatTrak™ Falchion Knife | Crimson Web (Field-Tested)": 200.00,
-    "★ StatTrak™ Falchion Knife | Black Laminate (Factory New)": 140.00,
+    "★ StatTrak™ Falchion Knife | Black Laminate (Factory New)": 190.00,
 }
 
 ITEM_NAME_IDS = {
@@ -627,7 +627,7 @@ def worker(grupo_skins, worker_id):
                 )
 
                 # Espera antes del siguiente intento
-                time.sleep(random.uniform(20, 40))
+                time.sleep(random.uniform(60, 80))
 
             with lock:
                 skins_revisadas_total += 1
@@ -665,7 +665,7 @@ def worker(grupo_skins, worker_id):
                 with lock:
                     stats["alertas_enviadas"] += 1
 
-            time.sleep(random.uniform(25, 40))
+            time.sleep(random.uniform(45, 75))
 
         estado_app["ultimo_escaneo"] = datetime.now().isoformat()
 
@@ -761,7 +761,7 @@ def worker(grupo_skins, worker_id):
                 stats["cache_hits"] = 0
                 stats["tiempo_consultas"] = 0
 
-        time.sleep(random.uniform(90, 180))
+        time.sleep(random.uniform(130, 250))
 
 # 🔁 Ejecutar el servidor Flask en hilo separado
 def iniciar_servidor():
