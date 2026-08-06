@@ -119,7 +119,7 @@ lock = threading.Lock()
 
 # Cache temporal de precios
 price_cache = {}
-CACHE_TTL = 150  # segundos
+CACHE_TTL = 250  # segundos
 
 failed_counts = {}
 
@@ -227,7 +227,7 @@ def obtener_proxy():
 
         return None
 
-    return random.choice(disponibles)
+    return min(disponibles, key=lambda p: PROXY_FAILS[p])
 
 # Crear app Flask para UptimeRobot
 app = Flask(__name__)
@@ -271,15 +271,19 @@ def buscar_precio(market_hash_name, session, proxy):
 
             with lock:
                 stats["cache_hits"] += 1
+                
 
-            print(
-                f"[CACHE HIT] "
-                f"{market_hash_name} -> "
-                f"${cache_data['price']:.2f}"
-            )
+            buy_price = cache_data.get("buy_price")
+
+            if buy_price is not None:
+
+                print(f"[CACHE HIT] {market_hash_name} -> BUY ${buy_price:.2f}")
+
+            else:
+
+                print(f"[CACHE HIT] {market_hash_name} -> BUY N/A")
 
             return {
-                "price": cache_data["price"],
                 "buy_price": cache_data.get("buy_price"),
                 "name": cache_data["name"]
             }
@@ -298,7 +302,7 @@ def buscar_precio(market_hash_name, session, proxy):
         )
 
         return {
-            "price": None,
+            "buy_price": None,
             "name": market_hash_name
         }
 
@@ -359,15 +363,13 @@ def buscar_precio(market_hash_name, session, proxy):
                 PROXY_FAILS[proxy] += 1
 
                 cooldown = min(
-                    30 * (2 ** (PROXY_FAILS[proxy] - 1)),
+                    60 * (2 ** (PROXY_FAILS[proxy] - 1)),
                     600
                 )
 
                 PROXY_STATUS[proxy] = (
                     time.time() + cooldown
                 )
-
-                fails = PROXY_FAILS[proxy]
 
             print(f"[WARN] Steam limitó una consulta. Reintentando...")
 
@@ -439,7 +441,7 @@ def buscar_precio(market_hash_name, session, proxy):
             )
 
             return {
-                "price": None,
+                "buy_price": None,
                 "name": market_hash_name
             }
 
@@ -451,65 +453,41 @@ def buscar_precio(market_hash_name, session, proxy):
         # PRECIOS DIRECTOS DE STEAM
         # =========================
 
-        sell_price_raw = data.get("sell_order_price")
         buy_price_raw = data.get("buy_order_price")
-
-        precio = None
         buy_price = None
 
-        # SELL
-        if sell_price_raw:
-
-            try:
-                sell_clean = re.sub(
-                    r"[^0-9.]",
-                    "",
-                    sell_price_raw
-                )
-
-                precio = float(sell_clean)
-
-            except (ValueError, TypeError):
-
-                print(
-                    f"[ERROR] No pude interpretar "
-                    f"sell_order_price: {sell_price_raw}"
-                )
-
-        # BUY
         if buy_price_raw:
 
             try:
-                buy_clean = re.sub(
-                    r"[^0-9.]",
-                    "",
-                    buy_price_raw
-                )
 
-                buy_price = float(buy_clean)
+                if isinstance(buy_price_raw, str):
+
+                    buy_clean = re.sub(r"[^0-9.]", "", buy_price_raw)
+
+                    buy_price = float(buy_clean)
+
+                else:
+
+                    buy_price = float(buy_price_raw)
 
             except (ValueError, TypeError):
 
-                print(
-                    f"[ERROR] No pude interpretar "
-                    f"buy_order_price: {buy_price_raw}"
-                )
+                print(f"[ERROR] Buy inválido: {buy_price_raw}")
 
         # =========================
         # VALIDAR SELL
         # =========================
 
-        if precio is None or precio <= 0:
+        if buy_price is None or buy_price <= 0:
 
             print(
                 f"[HISTOGRAM] "
-                f"No se encontró SELL válido para "
+                f"No se encontró BUY válido para "
                 f"{market_hash_name}"
             )
 
             return {
-                "price": None,
-                "buy_price": buy_price,
+                "buy_price": None,
                 "name": market_hash_name
             }
 
@@ -517,22 +495,11 @@ def buscar_precio(market_hash_name, session, proxy):
         # LOG
         # =========================
 
-        if buy_price is not None:
-
-            print(
-                f"[PRICE] "
-                f"{market_hash_name} -> "
-                f"SELL ${precio:.2f} | "
-                f"BUY ${buy_price:.2f}"
-            )
-
-        else:
-
-            print(
-                f"[PRICE] "
-                f"{market_hash_name} -> "
-                f"SELL ${precio:.2f}"
-            )
+        print(
+            f"[BUY] "
+            f"{market_hash_name} -> "
+            f"${buy_price:.2f}"
+        )
 
         # =========================
         # CACHE
@@ -541,7 +508,6 @@ def buscar_precio(market_hash_name, session, proxy):
         with lock:
 
             price_cache[market_hash_name] = {
-                "price": precio,
                 "buy_price": buy_price,
                 "name": market_hash_name,
                 "timestamp": time.time()
@@ -551,7 +517,6 @@ def buscar_precio(market_hash_name, session, proxy):
             PROXY_STATUS[proxy] = 0
 
         return {
-            "price": precio,
             "buy_price": buy_price,
             "name": market_hash_name
         }
@@ -566,6 +531,7 @@ def buscar_precio(market_hash_name, session, proxy):
         with lock:
 
             PROXY_FAILS[proxy] += 1
+            stats["requests_fallidas"] += 1
 
             if PROXY_FAILS[proxy] >= 5:
 
@@ -651,7 +617,7 @@ def worker(grupo_skins, worker_id):
                     proxy
                 )
 
-                if resultado is not None and resultado["price"] is not None:
+                if resultado is not None and resultado["buy_price"] is not None:
                     break
 
                 print(
@@ -661,12 +627,12 @@ def worker(grupo_skins, worker_id):
                 )
 
                 # Espera antes del siguiente intento
-                time.sleep(random.uniform(8, 20))
+                time.sleep(random.uniform(20, 40))
 
             with lock:
                 skins_revisadas_total += 1
 
-            if resultado is None or resultado["price"] is None:
+            if resultado is None or resultado["buy_price"] is None:
                 continue
 
             precio_actual = resultado["buy_price"]
@@ -676,9 +642,9 @@ def worker(grupo_skins, worker_id):
 
             ultima_alerta = notificados.get(skin_name)
 
-            if precio_actual >= precio_objetivo and (
+            if precio_actual >= precio_max and (
                 ultima_alerta is None
-                or precio_actual < ultima_alerta
+                or precio_actual > ultima_alerta
             ):
 
                 steam_url = (
@@ -687,11 +653,11 @@ def worker(grupo_skins, worker_id):
                 )
 
                 enviar_telegram(
-                    f"🛒 Skin en oferta\n"
-                    f"{skin_name}\n"
-                    f"{steam_url}\n"
-                    f"💵 {precio_actual:.2f} USD\n"
-                    f"📉 Max {precio_max:.2f} USD"
+                    f"💰 Conviene vender\n\n"
+                    f"{skin_name}\n\n"
+                    f"💵 Mejor Buy Order: ${precio_actual:.2f}\n"
+                    f"🎯 Objetivo: ${precio_max:.2f}\n\n"
+                    f"{steam_url}"
                 )
 
                 notificados[skin_name] = precio_actual
@@ -699,7 +665,7 @@ def worker(grupo_skins, worker_id):
                 with lock:
                     stats["alertas_enviadas"] += 1
 
-            time.sleep(random.uniform(8, 15))
+            time.sleep(random.uniform(25, 40))
 
         estado_app["ultimo_escaneo"] = datetime.now().isoformat()
 
@@ -793,8 +759,9 @@ def worker(grupo_skins, worker_id):
                 stats["requests_exitosas"] = 0
                 stats["requests_fallidas"] = 0
                 stats["cache_hits"] = 0
+                stats["tiempo_consultas"] = 0
 
-        time.sleep(random.uniform(15, 30))
+        time.sleep(random.uniform(90, 180))
 
 # 🔁 Ejecutar el servidor Flask en hilo separado
 def iniciar_servidor():
