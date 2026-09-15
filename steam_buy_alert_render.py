@@ -4,28 +4,45 @@ import time
 import os
 import threading
 import re
+import json
 from flask import Flask, jsonify
 from datetime import datetime
 import builtins
+from zoneinfo import ZoneInfo
+
+ZONA_ARG = ZoneInfo("America/Argentina/Buenos_Aires")
 
 # Lista de proxies (pegá los tuyos de Webshare)
 
 PROXIES = [
-    "http://olrliwpe:v769pjjmxnb1@130.180.232.130:8568",
-    "http://olrliwpe:v769pjjmxnb1@96.62.181.13:7225",
-    "http://olrliwpe:v769pjjmxnb1@82.29.239.219:5367",
-    "http://olrliwpe:v769pjjmxnb1@87.86.24.154:5805",
-    "http://olrliwpe:v769pjjmxnb1@31.98.15.224:5401",
-    "http://olrliwpe:v769pjjmxnb1@209.166.2.202:7863",
-    "http://olrliwpe:v769pjjmxnb1@45.58.228.57:5729",
-    "http://olrliwpe:v769pjjmxnb1@5.59.251.216:6255",
-    "http://olrliwpe:v769pjjmxnb1@9.142.218.36:6700",
-    "http://olrliwpe:v769pjjmxnb1@9.142.195.37:6205"
+    "http://olrliwpe:v769pjjmxnb1@195.40.128.37:6757",
+    "http://olrliwpe:v769pjjmxnb1@192.46.189.205:6198",
+    "http://olrliwpe:v769pjjmxnb1@138.226.70.245:7935",
+    "http://olrliwpe:v769pjjmxnb1@82.22.73.22:7228",
+    "http://olrliwpe:v769pjjmxnb1@195.40.128.230:6950",
+    "http://olrliwpe:v769pjjmxnb1@166.0.40.123:7131",
+    "http://olrliwpe:v769pjjmxnb1@203.100.210.175:5324",
+    "http://olrliwpe:v769pjjmxnb1@31.98.15.128:5305",
+    "http://olrliwpe:v769pjjmxnb1@9.142.42.134:5804",
+    "http://olrliwpe:v769pjjmxnb1@103.243.147.64:6043"
 ]
 
-PROXY_COOLDOWN = 600  # 10 min
+PROXY_COOLDOWN = 600
+
 PROXY_STATUS = {p: 0 for p in PROXIES}
 PROXY_FAILS = {p: 0 for p in PROXIES}
+
+PROXY_STATS = {
+    p: {
+        "requests": 0,
+        "ok": 0,
+        "http_errors": 0,
+        "timeouts": 0,
+        "json_errors": 0,
+        "429": 0
+    }
+    for p in PROXIES
+}
 
 # Redefinir print global con flush automático
 original_print = print
@@ -84,16 +101,12 @@ if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
 
 # Lista de ítems con URL y precio máximo aceptado
 skins_a_vigilar = {
-    "★ Paracord Knife | Crimson Web (Minimal Wear)": 180.00,
-    "★ StatTrak™ Paracord Knife | Blue Steel (Minimal Wear)": 170.00,
-    "★ StatTrak™ Kukri Knife | Blue Steel (Minimal Wear)": 170.00,
-    "★ Paracord Knife | Stained (Factory New)": 145.00,
-    "★ StatTrak™ Paracord Knife | Blue Steel (Field-Tested)": 145.00,
-    "★ StatTrak™ Skeleton Knife | Scorched (Field-Tested)": 207.00,
-    "★ StatTrak™ Bowie Knife | Lore (Field-Tested)": 149.00,
-    "★ StatTrak™ Paracord Knife | Crimson Web (Minimal Wear)": 200.00,
-    "★ StatTrak™ Falchion Knife | Crimson Web (Field-Tested)": 200.00,
-    "★ StatTrak™ Falchion Knife | Black Laminate (Factory New)": 190.00,
+    "★ Paracord Knife | Crimson Web (Minimal Wear)": 160.00,
+    "★ StatTrak™ Paracord Knife | Blue Steel (Minimal Wear)": 150.00,
+    "★ StatTrak™ Kukri Knife | Blue Steel (Minimal Wear)": 140.00,
+    "★ Paracord Knife | Stained (Factory New)": 120.00,
+    "★ StatTrak™ Paracord Knife | Crimson Web (Minimal Wear)": 190.00,
+    "★ StatTrak™ Falchion Knife | Black Laminate (Factory New)": 120.00,
 }
 
 ITEM_NAME_IDS = {
@@ -101,11 +114,7 @@ ITEM_NAME_IDS = {
     "★ StatTrak™ Paracord Knife | Blue Steel (Minimal Wear)": 176097689,
     "★ StatTrak™ Kukri Knife | Blue Steel (Minimal Wear)": 176414344,
     "★ Paracord Knife | Stained (Factory New)": 176100379,
-    "★ StatTrak™ Paracord Knife | Blue Steel (Field-Tested)": 176097567,
-    "★ StatTrak™ Skeleton Knife | Scorched (Field-Tested)": 176097569,
-    "★ StatTrak™ Bowie Knife | Lore (Field-Tested)": 176263221,
     "★ StatTrak™ Paracord Knife | Crimson Web (Minimal Wear)": 176105406,
-    "★ StatTrak™ Falchion Knife | Crimson Web (Field-Tested)": 49612097,
     "★ StatTrak™ Falchion Knife | Black Laminate (Factory New)": 176283223,
 }
 
@@ -113,15 +122,24 @@ notificados = {}
 ultimo_escaneo = None
 skins_revisadas_total = 0
 ciclo_numero = 0
-estado_app = {"activo": True, "errores": 0, "ultimo_escaneo": None}
+
+estado_app = {
+    "activo": True,
+    "errores": 0,
+    "ultimo_escaneo": None
+}
 
 lock = threading.Lock()
 
-# Cache temporal de precios
+STATE_FILE = "bot_state.json"
+
 price_cache = {}
-CACHE_TTL = 250  # segundos
+
+CACHE_MIN_TTL = 55
+CACHE_MAX_TTL = 190
 
 failed_counts = {}
+skin_errors = {}
 
 # =========================
 # ESTADÍSTICAS
@@ -136,22 +154,130 @@ stats = {
     "tiempo_consultas": 0.0
 }
 
-def limpiar_cache():
+stats_diarias = {
+    "ciclos": 0,
+    "requests_steam": 0,
+    "requests_exitosas": 0,
+    "requests_fallidas": 0,
+    "cache_hits": 0,
+    "alertas_enviadas": 0,
+    "pausas_programadas": 0
+}
 
+fecha_stats = datetime.now(ZONA_ARG).date().isoformat()
+
+# =========================
+# CONTROL GLOBAL STEAM 429
+# =========================
+
+GLOBAL_429_COUNT = 0
+GLOBAL_429_PAUSE_UNTIL = 0
+
+GLOBAL_429_THRESHOLD = 2
+
+GLOBAL_429_PAUSE_BASE = 300
+GLOBAL_429_PAUSE_MAX = 900
+
+def steam_rate_limit_activo():
+    ahora = time.time()
+
+    if ahora < GLOBAL_429_PAUSE_UNTIL:
+        restante = int(GLOBAL_429_PAUSE_UNTIL - ahora)
+
+        print(
+            f"[STEAM PAUSE] Rate limit activo | "
+            f"Restan {restante}s"
+        )
+
+        return True
+
+    return False
+
+def registrar_429():
+    global GLOBAL_429_COUNT
+    global GLOBAL_429_PAUSE_UNTIL
+
+    GLOBAL_429_COUNT += 1
+
+    print(
+        f"[STEAM 429] "
+        f"Consecutivos: {GLOBAL_429_COUNT}/{GLOBAL_429_THRESHOLD}"
+    )
+
+    if GLOBAL_429_COUNT >= GLOBAL_429_THRESHOLD:
+
+        nivel = GLOBAL_429_COUNT - GLOBAL_429_THRESHOLD
+
+        pausa = min(
+            GLOBAL_429_PAUSE_BASE * (2 ** nivel),
+            GLOBAL_429_PAUSE_MAX
+        )
+
+        pausa += random.uniform(15, 45)
+
+        GLOBAL_429_PAUSE_UNTIL = time.time() + pausa
+
+        print(
+            f"[STEAM PAUSE] "
+            f"Steam está limitando. "
+            f"Pausa global: {pausa:.0f}s"
+        )
+
+        GLOBAL_429_COUNT = 0
+
+def registrar_exito_steam():
+    global GLOBAL_429_COUNT
+
+    GLOBAL_429_COUNT = 0
+
+def calcular_ttl(buy_price, precio_objetivo):
+    if buy_price is None or precio_objetivo <= 0:
+        return random.uniform(
+            CACHE_MIN_TTL,
+            CACHE_MAX_TTL
+        )
+
+    distancia = (precio_objetivo - buy_price) / precio_objetivo
+
+    # Buy Order ya alcanzó o superó el objetivo
+    if distancia <= 0:
+        return random.uniform(55, 75)
+
+    # Hasta 5% por debajo del objetivo
+    elif distancia <= 0.05:
+        return random.uniform(75, 100)
+
+    # Entre 5% y 10% por debajo
+    elif distancia <= 0.10:
+        return random.uniform(100, 135)
+
+    # Entre 10% y 20% por debajo
+    elif distancia <= 0.20:
+        return random.uniform(135, 165)
+
+    # Más de 20% por debajo
+    else:
+        return random.uniform(165, 190)
+
+def limpiar_cache():
     ahora = time.time()
 
     with lock:
-
         keys_a_borrar = []
 
         for k, v in price_cache.items():
 
-            if ahora - v["timestamp"] > CACHE_TTL * 3:
+            next_refresh = v.get("next_refresh", 0)
 
-                keys_a_borrar.append(k)
+            if next_refresh > 0 and ahora > next_refresh:
+                # No borramos inmediatamente.
+                # Solo eliminamos entradas muy viejas.
+                timestamp = v.get("timestamp", ahora)
+
+                if ahora - timestamp > 900:
+                    keys_a_borrar.append(k)
 
         for k in keys_a_borrar:
-
             del price_cache[k]
 
     print(f"[CACHE CLEAN] Eliminadas {len(keys_a_borrar)} entradas")
@@ -198,7 +324,6 @@ def get_headers():
     }
 
 def obtener_proxy():
-
     ahora = time.time()
 
     disponibles = [
@@ -218,17 +343,20 @@ def obtener_proxy():
             f"Cooldown: {len(cooldown_activos)}"
         )
 
-        # reset global si TODOS están en cooldown
-        if len(cooldown_activos) == len(PROXIES):
-
-            print("[WARN] Todos los proxies en cooldown")
-
-            return None
-
         return None
 
-    return min(disponibles, key=lambda p: PROXY_FAILS[p])
+    # Elegir primero los proxies con menos fallos
+    min_fallos = min(
+        PROXY_FAILS[p]
+        for p in disponibles
+    )
 
+    candidatos = [
+        p for p in disponibles
+        if PROXY_FAILS[p] == min_fallos
+    ]
+
+    return random.choice(candidatos)
 # Crear app Flask para UptimeRobot
 app = Flask(__name__)
 
@@ -255,7 +383,6 @@ def status():
     })
     
 def buscar_precio(market_hash_name, session, proxy):
-
     ahora = time.time()
 
     # =========================
@@ -267,26 +394,64 @@ def buscar_precio(market_hash_name, session, proxy):
 
     if cache_data:
 
-        if ahora - cache_data["timestamp"] < CACHE_TTL:
+        next_refresh = cache_data.get("next_refresh", 0)
+
+        # Cache todavía vigente
+        if ahora < next_refresh:
 
             with lock:
                 stats["cache_hits"] += 1
-                
+                stats_diarias["cache_hits"] += 1
 
             buy_price = cache_data.get("buy_price")
 
             if buy_price is not None:
-
-                print(f"[CACHE HIT] {market_hash_name} -> BUY ${buy_price:.2f}")
-
+                print(
+                    f"[CACHE HIT] "
+                    f"{market_hash_name} -> "
+                    f"BUY ${buy_price:.2f} | "
+                    f"Próxima consulta en "
+                    f"{int(next_refresh - ahora)}s"
+                )
             else:
-
-                print(f"[CACHE HIT] {market_hash_name} -> BUY N/A")
+                print(
+                    f"[CACHE HIT] "
+                    f"{market_hash_name} -> BUY N/A"
+                )
 
             return {
-                "buy_price": cache_data.get("buy_price"),
-                "name": cache_data["name"]
+                "buy_price": buy_price,
+                "name": cache_data.get(
+                    "name",
+                    market_hash_name
+                ),
+                "from_cache": True,
+                "error": None
             }
+
+    # =========================
+    # RATE LIMIT GLOBAL
+    # =========================
+
+    if steam_rate_limit_activo():
+
+        restante = max(
+            1,
+            int(GLOBAL_429_PAUSE_UNTIL - time.time())
+        )
+
+        print(
+            f"[STEAM PAUSE] "
+            f"No se consulta {market_hash_name} "
+            f"por {restante}s"
+        )
+
+        return {
+            "buy_price": None,
+            "name": market_hash_name,
+            "from_cache": False,
+            "error": "global_429"
+        }
 
     # =========================
     # ITEM NAME ID
@@ -303,7 +468,9 @@ def buscar_precio(market_hash_name, session, proxy):
 
         return {
             "buy_price": None,
-            "name": market_hash_name
+            "name": market_hash_name,
+            "from_cache": False,
+            "error": "missing_item_nameid"
         }
 
     # =========================
@@ -331,13 +498,17 @@ def buscar_precio(market_hash_name, session, proxy):
     try:
 
         # =========================
-        # HISTOGRAMA
+        # REQUEST
         # =========================
 
         inicio_request = time.time()
 
         with lock:
             stats["requests_steam"] += 1
+            stats_diarias["requests_steam"] += 1
+
+            if proxy in PROXY_STATS:
+                PROXY_STATS[proxy]["requests"] += 1
 
         r = session.get(
             "https://steamcommunity.com/market/itemordershistogram",
@@ -347,13 +518,15 @@ def buscar_precio(market_hash_name, session, proxy):
             proxies=proxies
         )
 
-        duracion_request = time.time() - inicio_request
+        duracion_request = (
+            time.time() - inicio_request
+        )
 
         with lock:
             stats["tiempo_consultas"] += duracion_request
 
         # =========================
-        # RATE LIMIT
+        # HTTP 429
         # =========================
 
         if r.status_code == 429:
@@ -362,18 +535,39 @@ def buscar_precio(market_hash_name, session, proxy):
 
                 PROXY_FAILS[proxy] += 1
 
+                PROXY_STATS[proxy]["429"] += 1
+
+                stats["requests_fallidas"] += 1
+                stats_diarias["requests_fallidas"] += 1
+
+                fallos = PROXY_FAILS[proxy]
+
                 cooldown = min(
-                    60 * (2 ** (PROXY_FAILS[proxy] - 1)),
+                    90 * (2 ** (fallos - 1)),
                     600
                 )
+
+                cooldown += random.uniform(10, 30)
 
                 PROXY_STATUS[proxy] = (
                     time.time() + cooldown
                 )
 
-            print(f"[WARN] Steam limitó una consulta. Reintentando...")
+            print(
+                f"[STEAM 429] "
+                f"{market_hash_name} | "
+                f"Proxy en cooldown "
+                f"{cooldown:.0f}s"
+            )
 
-            return None
+            registrar_429()
+
+            return {
+                "buy_price": None,
+                "name": market_hash_name,
+                "from_cache": False,
+                "error": "429"
+            }
 
         # =========================
         # OTROS ERRORES HTTP
@@ -383,23 +577,25 @@ def buscar_precio(market_hash_name, session, proxy):
 
             print(
                 f"[HTTP ERROR HISTOGRAM] "
-                f"{proxy} -> {r.status_code}"
-            )
-
-            print(
-                f"[DEBUG URL] {r.url}"
-            )
-
-            print(
-                f"[DEBUG RESPONSE] "
-                f"{r.text[:500]}"
+                f"{market_hash_name} | "
+                f"{r.status_code}"
             )
 
             with lock:
-                PROXY_FAILS[proxy] += 1
-                stats["requests_fallidas"] += 1
 
-            return None
+                PROXY_FAILS[proxy] += 1
+
+                PROXY_STATS[proxy]["http_errors"] += 1
+
+                stats["requests_fallidas"] += 1
+                stats_diarias["requests_fallidas"] += 1
+
+            return {
+                "buy_price": None,
+                "name": market_hash_name,
+                "from_cache": False,
+                "error": "http_error"
+            }
 
         # =========================
         # JSON
@@ -412,19 +608,25 @@ def buscar_precio(market_hash_name, session, proxy):
         except Exception as e:
 
             print(
-                f"[ERROR] Steam no devolvió JSON: {e}"
+                f"[JSON ERROR] "
+                f"{market_hash_name}: {e}"
             )
 
-            print(
-                f"[DEBUG] Respuesta: "
-                f"{r.text[:500]}"
-            )
+            with lock:
 
-            return None
+                PROXY_FAILS[proxy] += 1
 
-        # =========================
-        # DEBUG
-        # =========================
+                PROXY_STATS[proxy]["json_errors"] += 1
+
+                stats["requests_fallidas"] += 1
+                stats_diarias["requests_fallidas"] += 1
+
+            return {
+                "buy_price": None,
+                "name": market_hash_name,
+                "from_cache": False,
+                "error": "json_error"
+            }
 
         # =========================
         # STEAM SUCCESS FALSE
@@ -432,50 +634,87 @@ def buscar_precio(market_hash_name, session, proxy):
 
         if not data.get("success"):
 
-            with lock:
-                stats["requests_fallidas"] += 1
-
             print(
-                f"[HISTOGRAM] Steam respondió "
-                f"success=False"
+                f"[HISTOGRAM] "
+                f"Steam respondió success=False | "
+                f"{market_hash_name}"
             )
+
+            with lock:
+
+                PROXY_FAILS[proxy] += 1
+
+                stats["requests_fallidas"] += 1
+                stats_diarias["requests_fallidas"] += 1
 
             return {
                 "buy_price": None,
-                "name": market_hash_name
+                "name": market_hash_name,
+                "from_cache": False,
+                "error": "steam_false"
             }
 
-        with lock:
-            stats["requests_exitosas"] += 1
-
-
-                # =========================
-        # PRECIOS DIRECTOS DE STEAM
+        # =========================
+        # STEAM RESPONDIÓ BIEN
         # =========================
 
-        buy_price_raw = data.get("buy_order_price")
+        registrar_exito_steam()
+
+        with lock:
+
+            stats["requests_exitosas"] += 1
+            stats_diarias["requests_exitosas"] += 1
+
+            PROXY_STATS[proxy]["ok"] += 1
+
+        # =========================
+        # BUY ORDER
+        # =========================
+
+        buy_price_raw = data.get(
+            "buy_order_price"
+        )
+
         buy_price = None
 
         if buy_price_raw:
 
             try:
 
-                if isinstance(buy_price_raw, str):
+                if isinstance(
+                    buy_price_raw,
+                    str
+                ):
 
-                    buy_clean = re.sub(r"[^0-9.]", "", buy_price_raw)
+                    buy_clean = re.sub(
+                        r"[^0-9.]",
+                        "",
+                        buy_price_raw
+                    )
 
-                    buy_price = float(buy_clean)
+                    buy_price = float(
+                        buy_clean
+                    )
 
                 else:
 
-                    buy_price = float(buy_price_raw)
+                    buy_price = float(
+                        buy_price_raw
+                    )
 
-            except (ValueError, TypeError):
+            except (
+                ValueError,
+                TypeError
+            ):
 
-                print(f"[ERROR] Buy inválido: {buy_price_raw}")
+                print(
+                    f"[ERROR] "
+                    f"Buy inválido: "
+                    f"{buy_price_raw}"
+                )
 
         # =========================
-        # VALIDAR SELL
+        # BUY INVÁLIDO
         # =========================
 
         if buy_price is None or buy_price <= 0:
@@ -488,8 +727,28 @@ def buscar_precio(market_hash_name, session, proxy):
 
             return {
                 "buy_price": None,
-                "name": market_hash_name
+                "name": market_hash_name,
+                "from_cache": False,
+                "error": "no_buy_price"
             }
+
+        # =========================
+        # CALCULAR TTL
+        # =========================
+
+        precio_objetivo = skins_a_vigilar.get(
+            market_hash_name,
+            0
+        )
+
+        ttl = calcular_ttl(
+            buy_price,
+            precio_objetivo
+        )
+
+        next_refresh = (
+            time.time() + ttl
+        )
 
         # =========================
         # LOG
@@ -498,7 +757,8 @@ def buscar_precio(market_hash_name, session, proxy):
         print(
             f"[BUY] "
             f"{market_hash_name} -> "
-            f"${buy_price:.2f}"
+            f"${buy_price:.2f} | "
+            f"TTL: {ttl:.0f}s"
         )
 
         # =========================
@@ -507,10 +767,13 @@ def buscar_precio(market_hash_name, session, proxy):
 
         with lock:
 
-            price_cache[market_hash_name] = {
+            price_cache[
+                market_hash_name
+            ] = {
                 "buy_price": buy_price,
                 "name": market_hash_name,
-                "timestamp": time.time()
+                "timestamp": time.time(),
+                "next_refresh": next_refresh
             }
 
             PROXY_FAILS[proxy] = 0
@@ -518,35 +781,63 @@ def buscar_precio(market_hash_name, session, proxy):
 
         return {
             "buy_price": buy_price,
-            "name": market_hash_name
+            "name": market_hash_name,
+            "from_cache": False,
+            "error": None
         }
+
+    # =========================
+    # TIMEOUT
+    # =========================
+
+    except requests.exceptions.Timeout as e:
+
+        print(
+            f"[TIMEOUT] "
+            f"{market_hash_name}: {e}"
+        )
+
+        with lock:
+
+            PROXY_FAILS[proxy] += 1
+
+            PROXY_STATS[proxy]["timeouts"] += 1
+
+            stats["requests_fallidas"] += 1
+            stats_diarias["requests_fallidas"] += 1
+
+        return {
+            "buy_price": None,
+            "name": market_hash_name,
+            "from_cache": False,
+            "error": "timeout"
+        }
+
+    # =========================
+    # OTROS ERRORES
+    # =========================
 
     except Exception as e:
 
         print(
             f"[ERROR HISTOGRAM] "
+            f"{market_hash_name} | "
             f"{type(e).__name__}: {e}"
         )
 
         with lock:
 
             PROXY_FAILS[proxy] += 1
+
             stats["requests_fallidas"] += 1
+            stats_diarias["requests_fallidas"] += 1
 
-            if PROXY_FAILS[proxy] >= 5:
-
-                PROXY_STATUS[proxy] = (
-                    time.time() + PROXY_COOLDOWN
-                )
-
-                print(
-                    f"[PROXY COOLDOWN] "
-                    f"{proxy}"
-                )
-
-                PROXY_FAILS[proxy] = 0
-
-        return None
+        return {
+            "buy_price": None,
+            "name": market_hash_name,
+            "from_cache": False,
+            "error": "exception"
+        }
         
 def enviar_telegram(mensaje):
     try:
@@ -578,38 +869,88 @@ def dividir_skins_en_grupos():
     return grupos
 
 def worker(grupo_skins, worker_id):
-
     print(f"[DEBUG] Worker {worker_id} arrancó")
 
     global skins_revisadas_total
+    global ciclo_numero
 
     while estado_app["activo"]:
 
         inicio_ciclo = time.time()
 
-        for skin_name, precio_max in grupo_skins:
+        # ==========================================
+        # ORDENAR POR PRÓXIMA ACTUALIZACIÓN
+        # ==========================================
+
+        grupo_ordenado = sorted(
+            grupo_skins,
+            key=lambda item: price_cache.get(
+                item[0],
+                {}
+            ).get("next_refresh", 0)
+        )
+
+        for skin_name, precio_objetivo in grupo_ordenado:
+
+            # ==========================================
+            # PAUSA GLOBAL STEAM
+            # ==========================================
+
+            if steam_rate_limit_activo():
+
+                restante = max(
+                    1,
+                    int(
+                        GLOBAL_429_PAUSE_UNTIL
+                        - time.time()
+                    )
+                )
+
+                print(
+                    f"[STEAM PAUSE] "
+                    f"Esperando {restante}s antes "
+                    f"de continuar"
+                )
+
+                time.sleep(
+                    min(restante, 60)
+                )
+
+                continue
+
+            # ==========================================
+            # OBTENER PROXY
+            # ==========================================
+
+            proxy = obtener_proxy()
+
+            if proxy is None:
+
+                print(
+                    f"[WARN] No hay proxies disponibles. "
+                    f"Esperando 15s..."
+                )
+
+                time.sleep(15)
+
+                continue
+
+            # ==========================================
+            # SESSION
+            # ==========================================
+
+            with lock:
+                session = SESSIONS[proxy]
+
+            # ==========================================
+            # CONSULTA
+            # ==========================================
 
             resultado = None
 
-            MAX_INTENTOS = 1
+            MAX_INTENTOS = 2
 
             for intento in range(MAX_INTENTOS):
-
-                proxy = obtener_proxy()
-
-                if proxy is None:
-
-                    print(
-                        f"[WARN] No hay proxy disponible para "
-                        f"{skin_name}"
-                    )
-
-                    time.sleep(15)
-
-                    continue
-
-                with lock:
-                    session = SESSIONS[proxy]
 
                 resultado = buscar_precio(
                     skin_name,
@@ -617,152 +958,292 @@ def worker(grupo_skins, worker_id):
                     proxy
                 )
 
-                if resultado is not None and resultado["buy_price"] is not None:
+                # ------------------------------------------
+                # RESULTADO VÁLIDO
+                # ------------------------------------------
+
+                if (
+                    resultado is not None
+                    and resultado.get("buy_price") is not None
+                ):
+                    break
+
+                # ------------------------------------------
+                # 429
+                # ------------------------------------------
+
+                if (
+                    resultado is not None
+                    and resultado.get("error") == "429"
+                ):
+
+                    print(
+                        f"[RETRY] "
+                        f"{skin_name} | "
+                        f"Steam 429"
+                    )
+
+                    break
+
+                # ------------------------------------------
+                # PAUSA GLOBAL
+                # ------------------------------------------
+
+                if (
+                    resultado is not None
+                    and resultado.get("error")
+                    == "global_429"
+                ):
+                    break
+
+                # ------------------------------------------
+                # ÚLTIMO INTENTO
+                # ------------------------------------------
+
+                if intento >= MAX_INTENTOS - 1:
                     break
 
                 print(
                     f"[RETRY] "
                     f"{skin_name} | "
-                    f"Intento {intento + 1}/{MAX_INTENTOS}"
+                    f"Intento "
+                    f"{intento + 1}/"
+                    f"{MAX_INTENTOS}"
                 )
 
-                # Espera antes del siguiente intento
-                time.sleep(random.uniform(60, 80))
+                time.sleep(
+                    random.uniform(8, 15)
+                )
+
+                # Buscar otro proxy para el segundo intento
+                nuevo_proxy = obtener_proxy()
+
+                if nuevo_proxy is not None:
+                    proxy = nuevo_proxy
+
+                    with lock:
+                        session = SESSIONS[proxy]
+
+            # ==========================================
+            # CONTADOR DE SKINS
+            # ==========================================
 
             with lock:
                 skins_revisadas_total += 1
 
-            if resultado is None or resultado["buy_price"] is None:
+            # ==========================================
+            # RESULTADO INVÁLIDO
+            # ==========================================
+
+            if (
+                resultado is None
+                or resultado.get("buy_price") is None
+            ):
                 continue
 
             precio_actual = resultado["buy_price"]
-            if precio_actual is None:
-                continue
             nombre_real = resultado["name"]
 
-            ultima_alerta = notificados.get(skin_name)
+            # ==========================================
+            # ALERTA
+            # ==========================================
 
-            if precio_actual >= precio_max and (
-                ultima_alerta is None
-                or precio_actual > ultima_alerta
+            ultima_alerta = notificados.get(
+                skin_name
+            )
+
+            if (
+                precio_actual >= precio_objetivo
+                and (
+                    ultima_alerta is None
+                    or precio_actual > ultima_alerta
+                )
             ):
 
                 steam_url = (
-                    "steam://openurl/https://steamcommunity.com/market/listings/730/"
-                    + requests.utils.quote(nombre_real, safe='')
+                    "steam://openurl/"
+                    "https://steamcommunity.com/market/listings/730/"
+                    + requests.utils.quote(
+                        nombre_real,
+                        safe=""
+                    )
                 )
 
-                enviar_telegram(
+                mensaje = (
                     f"💰 Conviene vender\n\n"
                     f"{skin_name}\n\n"
-                    f"💵 Mejor Buy Order: ${precio_actual:.2f}\n"
-                    f"🎯 Objetivo: ${precio_max:.2f}\n\n"
+                    f"💵 Mejor Buy Order: "
+                    f"${precio_actual:.2f}\n"
+                    f"🎯 Objetivo: "
+                    f"${precio_objetivo:.2f}\n\n"
                     f"{steam_url}"
                 )
 
-                notificados[skin_name] = precio_actual
-                
+                enviar_telegram(mensaje)
+
+                notificados[skin_name] = (
+                    precio_actual
+                )
+
                 with lock:
                     stats["alertas_enviadas"] += 1
+                    stats_diarias["alertas_enviadas"] += 1
 
-            time.sleep(random.uniform(45, 75))
+            # ==========================================
+            # ESPERA CORTA ENTRE SKINS
+            # ==========================================
 
-        estado_app["ultimo_escaneo"] = datetime.now().isoformat()
+            time.sleep(
+                random.uniform(6, 12)
+            )
 
-        if worker_id == 0:
+        # ==========================================
+        # FIN DEL CICLO
+        # ==========================================
 
-            global ciclo_numero
+        estado_app["ultimo_escaneo"] = (
+            datetime.now(ZONA_ARG).isoformat()
+        )
 
-            ciclo_numero += 1
+        ciclo_numero += 1
 
-            duracion = round(time.time() - inicio_ciclo, 2)
+        with lock:
+            stats_diarias["ciclos"] += 1
 
-            ahora = time.time()
+        duracion = round(
+            time.time() - inicio_ciclo,
+            2
+        )
 
-            proxies_activos = len([
-                p for p, t in PROXY_STATUS.items()
-                if t <= ahora
-            ])
+        ahora = time.time()
 
-            proxies_cooldown = len([
-                p for p, t in PROXY_STATUS.items()
-                if t > ahora
-            ])
+        proxies_activos = len([
+            p
+            for p, t in PROXY_STATUS.items()
+            if t <= ahora
+        ])
 
-            print("\n================ RESUMEN CICLO ================")
+        proxies_cooldown = len([
+            p
+            for p, t in PROXY_STATUS.items()
+            if t > ahora
+        ])
 
-            print(f"[INFO] Ciclo número: {ciclo_numero}")
+        print(
+            "\n================ RESUMEN CICLO ================"
+        )
 
-            print(f"[INFO] Skins totales vigiladas: {len(skins_a_vigilar)}")
+        print(
+            f"[INFO] Ciclo número: "
+            f"{ciclo_numero}"
+        )
 
-            print(f"[INFO] Skins revisadas: {skins_revisadas_total}")
+        print(
+            f"[INFO] Skins vigiladas: "
+            f"{len(skins_a_vigilar)}"
+        )
 
-            print(f"[INFO] Requests a Steam: {stats['requests_steam']}")
+        print(
+            f"[INFO] Skins revisadas: "
+            f"{skins_revisadas_total}"
+        )
 
-            print(f"[INFO] Requests exitosas: {stats['requests_exitosas']}")
+        print(
+            f"[INFO] Requests Steam: "
+            f"{stats['requests_steam']}"
+        )
 
-            print(f"[INFO] Requests fallidas: {stats['requests_fallidas']}")
+        print(
+            f"[INFO] Exitosas: "
+            f"{stats['requests_exitosas']}"
+        )
 
-            print(f"[INFO] Cache hits: {stats['cache_hits']}")
+        print(
+            f"[INFO] Fallidas: "
+            f"{stats['requests_fallidas']}"
+        )
 
-            print(f"[INFO] Alertas enviadas: {stats['alertas_enviadas']}")
+        print(
+            f"[INFO] Cache hits: "
+            f"{stats['cache_hits']}"
+        )
 
-            print(f"[INFO] Proxies activos: {proxies_activos}")
+        print(
+            f"[INFO] Alertas: "
+            f"{stats['alertas_enviadas']}"
+        )
 
-            print(f"[INFO] Proxies cooldown: {proxies_cooldown}")
+        print(
+            f"[INFO] Proxies activos: "
+            f"{proxies_activos}"
+        )
 
-            print(f"[INFO] Cache size: {len(price_cache)}")
+        print(
+            f"[INFO] Proxies cooldown: "
+            f"{proxies_cooldown}"
+        )
 
-            print(f"[INFO] Duración ciclo: {duracion} segundos")
+        print(
+            f"[INFO] Cache size: "
+            f"{len(price_cache)}"
+        )
 
-            if stats["requests_steam"] > 0:
+        print(
+            f"[INFO] Duración ciclo: "
+            f"{duracion}s"
+        )
 
-                promedio = (
-                    stats["tiempo_consultas"] /
-                    stats["requests_steam"]
-                )
+        if stats["requests_steam"] > 0:
 
-                print(
-                    f"[INFO] Tiempo promedio/request: "
-                    f"{promedio:.2f}s"
-                )
+            promedio = (
+                stats["tiempo_consultas"]
+                / stats["requests_steam"]
+            )
 
-            limpiar_cache()
+            print(
+                f"[INFO] Tiempo promedio/request: "
+                f"{promedio:.2f}s"
+            )
 
-            print("================================================\n")
+        print(
+            "================================================\n"
+        )
 
-            skins_a_eliminar = []
+        # ==========================================
+        # LIMPIAR CACHE ANTIGUA
+        # ==========================================
 
-            for skin, fails in failed_counts.items():
+        limpiar_cache()
 
-                if fails >= 50:
+        # ==========================================
+        # RESETEAR ESTADÍSTICAS DEL CICLO
+        # ==========================================
 
-                    print("\n[INFO] Skin desactivada por demasiados fallos:")
-                    print(skin)
+        skins_revisadas_total = 0
 
-                    skins_a_eliminar.append(skin)
+        with lock:
 
-            # eliminar skins problemáticas
-            for skin_name in skins_a_eliminar:
+            stats["requests_steam"] = 0
+            stats["requests_exitosas"] = 0
+            stats["requests_fallidas"] = 0
+            stats["cache_hits"] = 0
+            stats["tiempo_consultas"] = 0.0
 
-                if skin_name in skins_a_vigilar:
+        # ==========================================
+        # ESPERA ENTRE CICLOS
+        # ==========================================
 
-                    del skins_a_vigilar[skin_name]
+        pausa = random.uniform(
+            60,
+            120
+        )
 
-                    print(f"[INFO] Eliminada del monitoreo: {skin_name}")
+        print(
+            f"[PAUSA] Fin de ciclo. "
+            f"Esperando {pausa:.0f}s..."
+        )
 
-
-            skins_revisadas_total = 0
-
-            with lock:
-                stats["requests_steam"] = 0
-                stats["requests_exitosas"] = 0
-                stats["requests_fallidas"] = 0
-                stats["cache_hits"] = 0
-                stats["tiempo_consultas"] = 0
-
-        time.sleep(random.uniform(130, 250))
-
+        time.sleep(pausa)
 # 🔁 Ejecutar el servidor Flask en hilo separado
 def iniciar_servidor():
     app.run(host="0.0.0.0", port=8080, threaded=True, use_reloader=False)
