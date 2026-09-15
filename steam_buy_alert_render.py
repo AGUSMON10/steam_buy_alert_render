@@ -12,20 +12,17 @@ from zoneinfo import ZoneInfo
 
 ZONA_ARG = ZoneInfo("America/Argentina/Buenos_Aires")
 
-# Lista de proxies (pegá los tuyos de Webshare)
+# proxies 
 
 PROXIES = [
-    "http://olrliwpe:v769pjjmxnb1@195.40.128.37:6757",
-    "http://olrliwpe:v769pjjmxnb1@192.46.189.205:6198",
-    "http://olrliwpe:v769pjjmxnb1@138.226.70.245:7935",
-    "http://olrliwpe:v769pjjmxnb1@82.22.73.22:7228",
-    "http://olrliwpe:v769pjjmxnb1@195.40.128.230:6950",
-    "http://olrliwpe:v769pjjmxnb1@166.0.40.123:7131",
-    "http://olrliwpe:v769pjjmxnb1@203.100.210.175:5324",
-    "http://olrliwpe:v769pjjmxnb1@31.98.15.128:5305",
-    "http://olrliwpe:v769pjjmxnb1@9.142.42.134:5804",
-    "http://olrliwpe:v769pjjmxnb1@103.243.147.64:6043"
+    p.strip()
+    for p in os.environ.get("PROXIES", "").split(",")
+    if p.strip()
 ]
+
+if not PROXIES:
+    print("[ERROR] No hay proxies configurados en PROXIES")
+    exit(1)
 
 PROXY_COOLDOWN = 600
 
@@ -106,7 +103,11 @@ skins_a_vigilar = {
     "★ StatTrak™ Kukri Knife | Blue Steel (Minimal Wear)": 140.00,
     "★ Paracord Knife | Stained (Factory New)": 120.00,
     "★ StatTrak™ Paracord Knife | Crimson Web (Minimal Wear)": 190.00,
-    "★ StatTrak™ Falchion Knife | Black Laminate (Factory New)": 120.00,
+    "★ StatTrak™ Falchion Knife | Black Laminate (Factory New)": 185.00,
+    "★ StatTrak™ Falchion Knife | Lore (Minimal Wear)": 188.00,
+    "★ Paracord Knife | Blue Steel (Factory New)": 200.00,
+    "★ Bowie Knife | Tiger Tooth (Minimal Wear)": 200.00,
+    "M4A4 | Asiimov (Well-Worn)": 190.00,
 }
 
 ITEM_NAME_IDS = {
@@ -116,6 +117,10 @@ ITEM_NAME_IDS = {
     "★ Paracord Knife | Stained (Factory New)": 176100379,
     "★ StatTrak™ Paracord Knife | Crimson Web (Minimal Wear)": 176105406,
     "★ StatTrak™ Falchion Knife | Black Laminate (Factory New)": 176283223,
+    "★ StatTrak™ Falchion Knife | Lore (Minimal Wear)": 176263373,
+    "★ Paracord Knife | Blue Steel (Factory New)": 176099222,
+    "★ Bowie Knife | Tiger Tooth (Minimal Wear)": 175881329,
+    "M4A4 | Asiimov (Well-Worn)": 3455082,
 }
 
 notificados = {}
