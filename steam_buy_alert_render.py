@@ -300,6 +300,7 @@ def guardar_estado():
 
 def cargar_estado():
     global price_cache
+    global historial_precios
     global notificados
     global ciclo_numero
     global skins_revisadas_total
@@ -749,14 +750,39 @@ def registrar_historial_precio(skin_name, precio):
     if precio is None:
         return
 
+    try:
+        precio = float(precio)
+    except (ValueError, TypeError):
+        return
+
+    if precio <= 0:
+        return
+
     ahora = time.time()
 
     if skin_name not in historial_precios:
         historial_precios[skin_name] = []
 
-    historial_precios[skin_name].append({
+    historial = historial_precios[skin_name]
+
+    # Evitar registrar exactamente el mismo precio
+    # si fue consultado prácticamente al mismo tiempo.
+    if historial:
+
+        ultimo = historial[-1]
+
+        ultimo_precio = ultimo.get("precio")
+        ultimo_timestamp = ultimo.get("timestamp", 0)
+
+        if (
+            ultimo_precio == precio
+            and ahora - ultimo_timestamp < 30
+        ):
+            return
+
+    historial.append({
         "timestamp": ahora,
-        "precio": float(precio)
+        "precio": precio
     })
 
     # Mantener solamente las últimas 48 horas
@@ -764,14 +790,15 @@ def registrar_historial_precio(skin_name, precio):
 
     historial_precios[skin_name] = [
         dato
-        for dato in historial_precios[skin_name]
+        for dato in historial
         if dato.get("timestamp", 0) >= limite
     ]
 
     # Seguridad: máximo 500 registros por skin
     if len(historial_precios[skin_name]) > 500:
-        historial_precios[skin_name] = \
+        historial_precios[skin_name] = (
             historial_precios[skin_name][-500:]
+        )
 
 def obtener_precio_historico(skin_name, horas):
     """
@@ -1224,15 +1251,18 @@ def buscar_precio(market_hash_name, session, proxy):
                 "next_refresh": next_refresh
             }
 
-            registrar_historial_precio(
-                skin_name,
-                buy_order_price
-            )
-
-            guardar_estado()
-
             PROXY_FAILS[proxy] = 0
             PROXY_STATUS[proxy] = 0
+
+
+        # Registrar únicamente el precio real obtenido desde Steam
+        registrar_historial_precio(
+            market_hash_name,
+            buy_price
+        )
+
+        # Guardar cache + historial en GitHub
+        guardar_estado()
 
         return {
             "buy_price": buy_price,
