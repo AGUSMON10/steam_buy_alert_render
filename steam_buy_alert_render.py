@@ -204,6 +204,9 @@ lock = threading.Lock()
 STATE_FILE = "buy_bot_state.json"
 price_cache = {}
 
+# Historial real de precios obtenidos desde Steam
+historial_precios = {}
+
 # =========================
 # PERSISTENCIA EN GITHUB
 # =========================
@@ -226,6 +229,7 @@ def guardar_estado():
                 "estado_app": estado_app,
                 "historial_diario": historial_diario,
                 "fecha_stats": fecha_stats,
+                "historial_precios": historial_precios,
                 "ultima_fecha_resumen": ultima_fecha_resumen
             }
 
@@ -354,10 +358,8 @@ def cargar_estado():
 
         with lock:
 
-            price_cache = estado.get(
-                "price_cache",
-                {}
-            )
+            price_cache = estado.get("price_cache", {})
+            historial_precios = estado.get("historial_precios", {})
 
             notificados = estado.get(
                 "notificados",
@@ -737,6 +739,119 @@ def status():
         "items_vigilados": len(skins_a_vigilar),
         "notificaciones_enviadas": len(notificados)
     })
+
+def registrar_historial_precio(skin_name, precio):
+    """
+    Guarda únicamente precios reales obtenidos desde Steam.
+    Mantiene aproximadamente las últimas 48 horas.
+    """
+
+    if precio is None:
+        return
+
+    ahora = time.time()
+
+    if skin_name not in historial_precios:
+        historial_precios[skin_name] = []
+
+    historial_precios[skin_name].append({
+        "timestamp": ahora,
+        "precio": float(precio)
+    })
+
+    # Mantener solamente las últimas 48 horas
+    limite = ahora - (48 * 60 * 60)
+
+    historial_precios[skin_name] = [
+        dato
+        for dato in historial_precios[skin_name]
+        if dato.get("timestamp", 0) >= limite
+    ]
+
+    # Seguridad: máximo 500 registros por skin
+    if len(historial_precios[skin_name]) > 500:
+        historial_precios[skin_name] = \
+            historial_precios[skin_name][-500:]
+
+def obtener_precio_historico(skin_name, horas):
+    """
+    Busca el precio más cercano al momento indicado.
+    Por ejemplo:
+    horas=1  -> precio aproximado de hace 1 hora
+    horas=3  -> precio aproximado de hace 3 horas
+    """
+
+    historial = historial_precios.get(skin_name, [])
+
+    if not historial:
+        return None
+
+    objetivo = time.time() - (horas * 60 * 60)
+
+    mejor = None
+    mejor_distancia = None
+
+    for dato in historial:
+        timestamp = dato.get("timestamp")
+        precio = dato.get("precio")
+
+        if timestamp is None or precio is None:
+            continue
+
+        distancia = abs(timestamp - objetivo)
+
+        if mejor is None or distancia < mejor_distancia:
+            mejor = precio
+            mejor_distancia = distancia
+
+    return mejor
+
+def calcular_variacion_porcentual(precio_actual, precio_anterior):
+    if precio_actual is None or precio_anterior is None:
+        return None
+
+    if precio_anterior <= 0:
+        return None
+
+    return ((precio_actual - precio_anterior) / precio_anterior) * 100
+
+def obtener_analisis_historial(skin_name, precio_actual):
+    if precio_actual is None:
+        return None
+
+    precio_1h = obtener_precio_historico(skin_name, 1)
+    precio_3h = obtener_precio_historico(skin_name, 3)
+    precio_6h = obtener_precio_historico(skin_name, 6)
+    precio_24h = obtener_precio_historico(skin_name, 24)
+
+    return {
+        "precio_actual": precio_actual,
+
+        "precio_1h": precio_1h,
+        "precio_3h": precio_3h,
+        "precio_6h": precio_6h,
+        "precio_24h": precio_24h,
+
+        "variacion_1h": calcular_variacion_porcentual(
+            precio_actual,
+            precio_1h
+        ),
+
+        "variacion_3h": calcular_variacion_porcentual(
+            precio_actual,
+            precio_3h
+        ),
+
+        "variacion_6h": calcular_variacion_porcentual(
+            precio_actual,
+            precio_6h
+        ),
+
+        "variacion_24h": calcular_variacion_porcentual(
+            precio_actual,
+            precio_24h
+        )
+    }
     
 def buscar_precio(market_hash_name, session, proxy):
     ahora = time.time()
@@ -1108,6 +1223,13 @@ def buscar_precio(market_hash_name, session, proxy):
                 "timestamp": time.time(),
                 "next_refresh": next_refresh
             }
+
+            registrar_historial_precio(
+                skin_name,
+                buy_order_price
+            )
+
+            guardar_estado()
 
             PROXY_FAILS[proxy] = 0
             PROXY_STATUS[proxy] = 0
