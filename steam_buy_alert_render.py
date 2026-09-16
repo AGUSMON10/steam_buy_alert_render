@@ -96,19 +96,81 @@ if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
     print("Configúralas en la herramienta de Secrets de Replit")
     exit(1)
 
-# Lista de ítems con URL y precio máximo aceptado
+# ==========================================================
+# SKINS A VIGILAR
+# ==========================================================
+# pagado = lo que realmente pagaste por la skin
+# perdida_maxima = cuánto estás dispuesto a perder en USD
+#
+# El bot calcula automáticamente el Buy Order necesario
+# para que, después de la comisión de Steam, tu pérdida
+# no supere ese valor.
+#
+# Steam descuenta aproximadamente 13.0434782608695%
+# ==========================================================
+
 skins_a_vigilar = {
-    "★ Paracord Knife | Crimson Web (Minimal Wear)": 160.00,
-    "★ StatTrak™ Paracord Knife | Blue Steel (Minimal Wear)": 150.00,
-    "★ StatTrak™ Kukri Knife | Blue Steel (Minimal Wear)": 140.00,
-    "★ Paracord Knife | Stained (Factory New)": 120.00,
-    "★ StatTrak™ Paracord Knife | Crimson Web (Minimal Wear)": 190.00,
-    "★ StatTrak™ Falchion Knife | Black Laminate (Factory New)": 185.00,
-    "★ StatTrak™ Falchion Knife | Lore (Minimal Wear)": 188.00,
-    "★ Paracord Knife | Blue Steel (Factory New)": 200.00,
-    "★ Bowie Knife | Tiger Tooth (Minimal Wear)": 200.00,
-    "M4A4 | Asiimov (Well-Worn)": 190.00,
+
+    "★ Paracord Knife | Crimson Web (Minimal Wear)": {
+        "pagado": 168.00,
+        "perdida_maxima": 10.00
+    },
+
+    "★ StatTrak™ Paracord Knife | Blue Steel (Minimal Wear)": {
+        "pagado": 147.00,
+        "perdida_maxima": 10.00
+    },
+
+    "★ StatTrak™ Kukri Knife | Blue Steel (Minimal Wear)": {
+        "pagado": 151.00,
+        "perdida_maxima": 12.00
+    },
+
+    "★ Paracord Knife | Stained (Factory New)": {
+        "pagado": 116.00,
+        "perdida_maxima": 10.00
+    },
+
+    "★ StatTrak™ Paracord Knife | Crimson Web (Minimal Wear)": {
+        "pagado": 150.00,
+        "perdida_maxima": 0.00
+    },
+
+    "★ StatTrak™ Falchion Knife | Black Laminate (Factory New)": {
+        "pagado": 154.00,
+        "perdida_maxima": 10.00
+    },
+
+    "★ StatTrak™ Falchion Knife | Lore (Minimal Wear)": {
+        "pagado": 152.00,
+        "perdida_maxima": 10.00
+    },
+
+    "★ Paracord Knife | Blue Steel (Factory New)": {
+        "pagado": 185.00,
+        "perdida_maxima": 10.00
+    },
+
+    "★ Bowie Knife | Tiger Tooth (Minimal Wear)": {
+        "pagado": 171.00,
+        "perdida_maxima": 5.00
+    },
+
+    "M4A4 | Asiimov (Well-Worn)": {
+        "pagado": 160.00,
+        "perdida_maxima": 5.00
+    },
+
 }
+
+# ==========================================================
+# COMISIÓN STEAM
+# ==========================================================
+
+COMISION_STEAM = 0.130434782608695
+
+# Porcentaje que realmente recibimos después de la comisión
+NETO_STEAM = 1 - COMISION_STEAM
 
 ITEM_NAME_IDS = {
     "★ Paracord Knife | Crimson Web (Minimal Wear)": 176097544,
@@ -468,6 +530,61 @@ def registrar_exito_steam():
     global GLOBAL_429_COUNT
 
     GLOBAL_429_COUNT = 0
+
+# ==========================================================
+# CÁLCULOS DE VENTA
+# ==========================================================
+
+def obtener_datos_venta(skin_name):
+    datos = skins_a_vigilar.get(skin_name)
+
+    if not datos:
+        return None
+
+    pagado = datos["pagado"]
+    perdida_maxima = datos["perdida_maxima"]
+
+    # Dinero neto que queremos recibir como mínimo
+    neto_minimo = pagado - perdida_maxima
+
+    # Buy Order bruto necesario para recibir ese neto
+    precio_objetivo = neto_minimo / NETO_STEAM
+
+    # Precio bruto necesario para quedar exactamente empatado
+    precio_break_even = pagado / NETO_STEAM
+
+    return {
+        "pagado": pagado,
+        "perdida_maxima": perdida_maxima,
+        "neto_minimo": neto_minimo,
+        "precio_objetivo": precio_objetivo,
+        "precio_break_even": precio_break_even
+    }
+
+
+def calcular_neto_venta(precio_buy_order):
+    if precio_buy_order is None:
+        return None
+
+    return precio_buy_order * NETO_STEAM
+
+
+def calcular_perdida(precio_buy_order, pagado):
+    neto = calcular_neto_venta(precio_buy_order)
+
+    if neto is None:
+        return None
+
+    return pagado - neto
+
+
+def calcular_ganancia(precio_buy_order, pagado):
+    neto = calcular_neto_venta(precio_buy_order)
+
+    if neto is None:
+        return None
+
+    return neto - pagado
 
 def calcular_ttl(buy_price, precio_objetivo):
     if buy_price is None or precio_objetivo <= 0:
@@ -961,10 +1078,12 @@ def buscar_precio(market_hash_name, session, proxy):
         # CALCULAR TTL
         # =========================
 
-        precio_objetivo = skins_a_vigilar.get(
-            market_hash_name,
-            0
-        )
+        datos_venta = obtener_datos_venta(market_hash_name)
+
+        if datos_venta:
+            precio_objetivo = datos_venta["precio_objetivo"]
+        else:
+            precio_objetivo = 0
 
         ttl = calcular_ttl(
             buy_price,
@@ -1124,7 +1243,14 @@ def enviar_resumen_diario():
             for skin, datos in historial_diario.items()
         }
 
-    for skin_name, precio_objetivo in skins_a_vigilar.items():
+    for skin_name in skins_a_vigilar:
+
+        datos_venta = obtener_datos_venta(skin_name)
+
+        if not datos_venta:
+            continue
+
+        precio_objetivo = datos_venta["precio_objetivo"]
 
         datos = datos_copia.get(skin_name, {})
 
@@ -1197,9 +1323,30 @@ def enviar_resumen_diario():
         else:
             objetivo_texto = "🎯 OBJETIVO ALCANZADO"
 
+        datos_venta = obtener_datos_venta(skin_name)
+
+        pagado = datos_venta["pagado"]
+        perdida_maxima = datos_venta["perdida_maxima"]
+
+        neto_actual = calcular_neto_venta(actual)
+        resultado_actual = neto_actual - pagado
+
+        if resultado_actual >= 0:
+            resultado_texto = (
+                f"🟢 Ganancia: ${resultado_actual:.2f}"
+            )
+        else:
+            resultado_texto = (
+                f"🔻 Pérdida: ${abs(resultado_actual):.2f}"
+            )
+
         detalles.append(
             f"{emoji} {skin_name}\n"
-            f"   💵 Actual: ${actual:.2f}\n"
+            f"   💵 Buy Order: ${actual:.2f}\n"
+            f"   💳 Neto venta: ${neto_actual:.2f}\n"
+            f"   💰 Pagaste: ${pagado:.2f}\n"
+            f"   {resultado_texto}\n"
+            f"   🎯 Pérdida máxima: ${perdida_maxima:.2f}\n"
             f"   🎯 Objetivo: ${precio_objetivo:.2f}\n"
             f"   📊 Día: "
             f"{variacion:+.2f} "
@@ -1539,15 +1686,50 @@ def worker(grupo_skins, worker_id):
                     )
                 )
 
-                mensaje = (
-                    f"💰 Conviene vender\n\n"
-                    f"{skin_name}\n\n"
-                    f"💵 Mejor Buy Order: "
-                    f"${precio_actual:.2f}\n"
-                    f"🎯 Objetivo: "
-                    f"${precio_objetivo:.2f}\n\n"
-                    f"{steam_url}"
-                )
+                datos_venta = obtener_datos_venta(skin_name)
+
+                if datos_venta:
+
+                    pagado = datos_venta["pagado"]
+                    perdida_maxima = datos_venta["perdida_maxima"]
+                    neto_minimo = datos_venta["neto_minimo"]
+                    precio_break_even = datos_venta["precio_break_even"]
+
+                    neto_actual = calcular_neto_venta(precio_actual)
+                    resultado_actual = neto_actual - pagado
+
+                    if resultado_actual >= 0:
+                        resultado_texto = (
+                            f"🟢 Ganancia: ${resultado_actual:.2f}"
+                        )
+                    else:
+                        resultado_texto = (
+                            f"🔻 Pérdida: ${abs(resultado_actual):.2f}"
+                        )
+
+                    mensaje = (
+                        f"🚨 OBJETIVO DE VENTA\n\n"
+                        f"{skin_name}\n\n"
+                        f"💵 Mejor Buy Order: ${precio_actual:.2f}\n"
+                        f"💳 Recibís neto: ${neto_actual:.2f}\n\n"
+                        f"💰 Pagaste: ${pagado:.2f}\n"
+                        f"{resultado_texto}\n"
+                        f"🎯 Pérdida máxima: ${perdida_maxima:.2f}\n\n"
+                        f"🎯 Objetivo Buy Order: ${precio_objetivo:.2f}\n"
+                        f"⚖️ Break-even: ${precio_break_even:.2f}\n\n"
+                        f"✅ OBJETIVO ALCANZADO\n\n"
+                        f"{steam_url}"
+                    )
+
+                else:
+
+                    mensaje = (
+                        f"🚨 OBJETIVO DE VENTA\n\n"
+                        f"{skin_name}\n\n"
+                        f"💵 Mejor Buy Order: ${precio_actual:.2f}\n"
+                        f"🎯 Objetivo: ${precio_objetivo:.2f}\n\n"
+                        f"{steam_url}"
+                    )
 
                 enviar_telegram(mensaje)
 
