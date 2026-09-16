@@ -186,6 +186,10 @@ ITEM_NAME_IDS = {
 }
 
 notificados = {}
+
+# Última alerta de caída acelerada por skin
+alertas_caida = {}
+
 ultimo_escaneo = None
 skins_revisadas_total = 0
 ciclo_numero = 0
@@ -197,7 +201,7 @@ estado_app = {
 }
 
 historial_diario = {}
-fecha_stats = datetime.now(ZONA_ARG).date()
+fecha_stats = datetime.now(ZONA_ARG).date().isoformat()
 ultima_fecha_resumen = None
 
 lock = threading.Lock()
@@ -224,6 +228,7 @@ def guardar_estado():
             estado = {
                 "price_cache": price_cache,
                 "notificados": notificados,
+                "alertas_caida": alertas_caida,
                 "ciclo_numero": ciclo_numero,
                 "skins_revisadas_total": skins_revisadas_total,
                 "estado_app": estado_app,
@@ -302,6 +307,7 @@ def cargar_estado():
     global price_cache
     global historial_precios
     global notificados
+    global alertas_caida
     global ciclo_numero
     global skins_revisadas_total
     global estado_app
@@ -360,12 +366,33 @@ def cargar_estado():
         with lock:
 
             price_cache = estado.get("price_cache", {})
-            historial_precios = estado.get("historial_precios", {})
+            historial_guardado_precios = estado.get(
+                "historial_precios",
+                {}
+            )
+
+            if isinstance(historial_guardado_precios, dict):
+                historial_precios = historial_guardado_precios
+            else:
+                historial_precios = {}
 
             notificados = estado.get(
                 "notificados",
                 {}
             )
+
+            alertas_caida_guardadas = estado.get(
+                "alertas_caida",
+                {}
+            )
+
+            if isinstance(
+                alertas_caida_guardadas,
+                dict
+            ):
+                alertas_caida = alertas_caida_guardadas
+            else:
+                alertas_caida = {}
 
             ciclo_numero = estado.get(
                 "ciclo_numero",
@@ -802,10 +829,11 @@ def registrar_historial_precio(skin_name, precio):
 
 def obtener_precio_historico(skin_name, horas):
     """
-    Busca el precio más cercano al momento indicado.
-    Por ejemplo:
-    horas=1  -> precio aproximado de hace 1 hora
-    horas=3  -> precio aproximado de hace 3 horas
+    Busca un precio cercano al período solicitado.
+
+    No utiliza datos demasiado alejados del momento buscado.
+    Esto evita calcular variaciones falsas si el bot estuvo
+    apagado o sin datos durante varias horas.
     """
 
     historial = historial_precios.get(skin_name, [])
@@ -813,21 +841,49 @@ def obtener_precio_historico(skin_name, horas):
     if not historial:
         return None
 
-    objetivo = time.time() - (horas * 60 * 60)
+    ahora = time.time()
+
+    objetivo = ahora - (horas * 60 * 60)
+
+    # Tolerancia permitida según el período solicitado.
+    if horas == 1:
+        tolerancia = 15 * 60       # ±15 minutos
+
+    elif horas == 3:
+        tolerancia = 30 * 60       # ±30 minutos
+
+    elif horas == 6:
+        tolerancia = 60 * 60       # ±1 hora
+
+    elif horas == 24:
+        tolerancia = 4 * 60 * 60   # ±4 horas
+
+    else:
+        tolerancia = 60 * 60       # ±1 hora
 
     mejor = None
     mejor_distancia = None
 
     for dato in historial:
+
         timestamp = dato.get("timestamp")
         precio = dato.get("precio")
 
         if timestamp is None or precio is None:
             continue
 
-        distancia = abs(timestamp - objetivo)
+        distancia = abs(
+            timestamp - objetivo
+        )
 
-        if mejor is None or distancia < mejor_distancia:
+        # Ignorar datos demasiado alejados
+        if distancia > tolerancia:
+            continue
+
+        if (
+            mejor is None
+            or distancia < mejor_distancia
+        ):
             mejor = precio
             mejor_distancia = distancia
 
@@ -879,7 +935,67 @@ def obtener_analisis_historial(skin_name, precio_actual):
             precio_24h
         )
     }
-    
+
+def detectar_caida_acelerada(
+    skin_name,
+    precio_actual
+):
+    """
+    Detecta caídas rápidas utilizando
+    el historial real obtenido desde Steam.
+    """
+
+    analisis = obtener_analisis_historial(
+        skin_name,
+        precio_actual
+    )
+
+    if not analisis:
+        return None
+
+    variacion_1h = analisis["variacion_1h"]
+    variacion_3h = analisis["variacion_3h"]
+    variacion_6h = analisis["variacion_6h"]
+
+    # Necesitamos como mínimo datos de 1h y 3h
+    if (
+        variacion_1h is None
+        or variacion_3h is None
+    ):
+        return None
+
+    # ==================================================
+    # CONDICIÓN DE CAÍDA ACELERADA
+    # ==================================================
+
+    caida_1h = variacion_1h <= -1.5
+    caida_3h = variacion_3h <= -3.0
+
+    if not (
+        caida_1h
+        and caida_3h
+    ):
+        return None
+
+    # ==================================================
+    # COOLDOWN DE ALERTA
+    # ==================================================
+
+    ahora = time.time()
+
+    ultima_alerta = alertas_caida.get(
+        skin_name,
+        0
+    )
+
+    # No volver a avisar durante 6 horas
+    if ahora - ultima_alerta < 6 * 60 * 60:
+        return None
+
+    alertas_caida[skin_name] = ahora
+
+    return analisis
+
 def buscar_precio(market_hash_name, session, proxy):
     ahora = time.time()
 
@@ -1806,6 +1922,100 @@ def worker(grupo_skins, worker_id):
                 precio_objetivo,
                 from_cache
             )
+
+            # ==========================================
+            # DETECTAR CAÍDA ACELERADA
+            # ==========================================
+
+            analisis_caida = detectar_caida_acelerada(
+                skin_name,
+                precio_actual
+            )
+
+            if analisis_caida:
+
+                datos_venta = obtener_datos_venta(
+                    skin_name
+                )
+
+                if datos_venta:
+
+                    pagado = datos_venta["pagado"]
+
+                    neto_actual = calcular_neto_venta(
+                        precio_actual
+                    )
+
+                    resultado_actual = (
+                        neto_actual - pagado
+                    )
+
+                    if resultado_actual >= 0:
+
+                        resultado_texto = (
+                            f"🟢 Ganancia: "
+                            f"${resultado_actual:.2f}"
+                        )
+
+                    else:
+
+                        resultado_texto = (
+                            f"🔻 Pérdida: "
+                            f"${abs(resultado_actual):.2f}"
+                        )
+
+                    v1 = analisis_caida["variacion_1h"]
+                    v3 = analisis_caida["variacion_3h"]
+                    v6 = analisis_caida["variacion_6h"]
+                    v24 = analisis_caida["variacion_24h"]
+
+                    mensaje_caida = (
+                        f"🚨 CAÍDA ACELERADA\n\n"
+
+                        f"{skin_name}\n\n"
+
+                        f"💵 Buy Order actual: "
+                        f"${precio_actual:.2f}\n\n"
+
+                        f"📉 Última hora: "
+                        f"{v1:+.2f}%\n"
+
+                        f"📉 Últimas 3h: "
+                        f"{v3:+.2f}%\n"
+
+                        f"📉 Últimas 6h: "
+                        f"{v6:+.2f}%\n"
+                    )
+
+                    if v24 is not None:
+                        mensaje_caida += (
+                            f"📉 Últimas 24h: "
+                            f"{v24:+.2f}%\n"
+                        )
+
+                    mensaje_caida += (
+                        f"\n"
+                        f"💰 Pagaste: "
+                        f"${pagado:.2f}\n"
+
+                        f"{resultado_texto}\n"
+
+                        f"\n"
+                        f"⚠️ El precio está cayendo "
+                        f"rápidamente.\n"
+                        f"Revisar evolución antes de esperar "
+                        f"al objetivo de venta."
+                    )
+
+                    enviar_telegram(
+                        mensaje_caida
+                    )
+
+                    with lock:
+                        stats["alertas_enviadas"] += 1
+                        stats_diarias["alertas_enviadas"] += 1
+
+                    guardar_estado()
 
             print(
                 f"[{origen}] "
