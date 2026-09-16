@@ -170,6 +170,23 @@ stats_diarias = {
 }
 
 fecha_stats = datetime.now(ZONA_ARG).date().isoformat()
+ultima_fecha_resumen = fecha_stats
+
+# =========================
+# HISTORIAL DIARIO DE SKINS
+# =========================
+
+historial_diario = {}
+
+for skin in skins_a_vigilar:
+    historial_diario[skin] = {
+        "inicial": None,
+        "actual": None,
+        "minimo": None,
+        "maximo": None,
+        "consultas_steam": 0,
+        "alcanzo_objetivo": False
+    }
 
 # =========================
 # CONTROL GLOBAL STEAM 429
@@ -843,6 +860,198 @@ def buscar_precio(market_hash_name, session, proxy):
             "from_cache": False,
             "error": "exception"
         }
+
+def registrar_precio_diario(
+    skin_name,
+    precio_actual,
+    precio_objetivo,
+    from_cache
+):
+    global historial_diario
+
+    if precio_actual is None:
+        return
+
+    with lock:
+
+        datos = historial_diario.setdefault(
+            skin_name,
+            {
+                "inicial": None,
+                "actual": None,
+                "minimo": None,
+                "maximo": None,
+                "consultas_steam": 0,
+                "alcanzo_objetivo": False
+            }
+        )
+
+        # Primer precio observado del día
+        if datos["inicial"] is None:
+            datos["inicial"] = precio_actual
+            datos["minimo"] = precio_actual
+            datos["maximo"] = precio_actual
+
+        # Actualizar precio actual
+        datos["actual"] = precio_actual
+
+        # Mínimo y máximo del día
+        if precio_actual < datos["minimo"]:
+            datos["minimo"] = precio_actual
+
+        if precio_actual > datos["maximo"]:
+            datos["maximo"] = precio_actual
+
+        # Solo contamos consultas reales a Steam
+        if not from_cache:
+            datos["consultas_steam"] += 1
+
+        # ¿Alcanzó el objetivo?
+        if precio_actual >= precio_objetivo:
+            datos["alcanzo_objetivo"] = True
+
+def enviar_resumen_diario():
+    global historial_diario
+
+    fecha = datetime.now(ZONA_ARG).strftime("%d/%m/%Y")
+
+    subieron = 0
+    bajaron = 0
+    sin_cambios = 0
+    alcanzaron_objetivo = 0
+    cerca_objetivo = 0
+
+    mayor_subida = None
+    mayor_bajada = None
+
+    detalles = []
+
+    with lock:
+        datos_copia = {
+            skin: datos.copy()
+            for skin, datos in historial_diario.items()
+        }
+
+    for skin_name, precio_objetivo in skins_a_vigilar.items():
+
+        datos = datos_copia.get(skin_name, {})
+
+        inicial = datos.get("inicial")
+        actual = datos.get("actual")
+        minimo = datos.get("minimo")
+        maximo = datos.get("maximo")
+        consultas = datos.get("consultas_steam", 0)
+        alcanzo = datos.get("alcanzo_objetivo", False)
+
+        if inicial is None or actual is None:
+            detalles.append(
+                f"⚪ {skin_name}\n"
+                f"   Sin datos suficientes hoy."
+            )
+            continue
+
+        variacion = actual - inicial
+
+        if inicial > 0:
+            variacion_pct = (
+                variacion / inicial
+            ) * 100
+        else:
+            variacion_pct = 0
+
+        # Clasificación
+        if variacion > 0.009:
+            emoji = "📈"
+            subieron += 1
+
+        elif variacion < -0.009:
+            emoji = "📉"
+            bajaron += 1
+
+        else:
+            emoji = "➡️"
+            sin_cambios += 1
+
+        if alcanzo:
+            alcanzaron_objetivo += 1
+
+        distancia_objetivo = (
+            (precio_objetivo - actual)
+            / precio_objetivo
+        ) * 100
+
+        if 0 <= distancia_objetivo <= 5:
+            cerca_objetivo += 1
+
+        # Mayor subida
+        if mayor_subida is None or variacion_pct > mayor_subida[1]:
+            mayor_subida = (
+                skin_name,
+                variacion_pct
+            )
+
+        # Mayor bajada
+        if mayor_bajada is None or variacion_pct < mayor_bajada[1]:
+            mayor_bajada = (
+                skin_name,
+                variacion_pct
+            )
+
+        if distancia_objetivo > 0:
+            objetivo_texto = (
+                f"Faltan ${precio_objetivo - actual:.2f} "
+                f"({distancia_objetivo:.1f}%)"
+            )
+        else:
+            objetivo_texto = "🎯 OBJETIVO ALCANZADO"
+
+        detalles.append(
+            f"{emoji} {skin_name}\n"
+            f"   💵 Actual: ${actual:.2f}\n"
+            f"   🎯 Objetivo: ${precio_objetivo:.2f}\n"
+            f"   📊 Día: "
+            f"{variacion:+.2f} "
+            f"({variacion_pct:+.1f}%)\n"
+            f"   ↕️ Min/Max: "
+            f"${minimo:.2f} / ${maximo:.2f}\n"
+            f"   🎯 {objetivo_texto}\n"
+            f"   🔎 Steam: {consultas} consultas"
+        )
+
+    mensaje = (
+        f"📊 RESUMEN DIARIO\n"
+        f"📅 {fecha}\n\n"
+
+        f"📈 Subieron: {subieron}\n"
+        f"📉 Bajaron: {bajaron}\n"
+        f"➡️ Sin cambios: {sin_cambios}\n"
+        f"🎯 Alcanzaron objetivo: {alcanzaron_objetivo}\n"
+        f"🔥 A menos de 5% del objetivo: {cerca_objetivo}\n\n"
+    )
+
+    if mayor_subida:
+        mensaje += (
+            f"🚀 Mayor subida:\n"
+            f"{mayor_subida[0]} "
+            f"({mayor_subida[1]:+.1f}%)\n\n"
+        )
+
+    if mayor_bajada:
+        mensaje += (
+            f"🔻 Mayor bajada:\n"
+            f"{mayor_bajada[0]} "
+            f"({mayor_bajada[1]:+.1f}%)\n\n"
+        )
+
+    mensaje += (
+        "━━━━━━━━━━━━━━━━━━\n"
+        "📋 DETALLE DE SKINS\n"
+        "━━━━━━━━━━━━━━━━━━\n\n"
+    )
+
+    mensaje += "\n\n".join(detalles)
+
+    enviar_telegram(mensaje)
         
 def enviar_telegram(mensaje):
     try:
@@ -878,8 +1087,45 @@ def worker(grupo_skins, worker_id):
 
     global skins_revisadas_total
     global ciclo_numero
+    global ultima_fecha_resumen
+    global historial_diario
 
     while estado_app["activo"]:
+
+        # ==========================================
+        # CAMBIO DE DÍA
+        # ==========================================
+
+        fecha_actual = (
+            datetime.now(ZONA_ARG)
+            .date()
+            .isoformat()
+        )
+
+        if fecha_actual != ultima_fecha_resumen:
+
+            print(
+                "[RESUMEN DIARIO] "
+                "Nuevo día detectado. "
+                "Enviando resumen..."
+            )
+
+            enviar_resumen_diario()
+
+            with lock:
+                historial_diario = {
+                    skin: {
+                        "inicial": None,
+                        "actual": None,
+                        "minimo": None,
+                        "maximo": None,
+                        "consultas_steam": 0,
+                        "alcanzo_objetivo": False
+                    }
+                    for skin in skins_a_vigilar
+                }
+
+            ultima_fecha_resumen = fecha_actual
 
         inicio_ciclo = time.time()
 
@@ -1048,6 +1294,30 @@ def worker(grupo_skins, worker_id):
 
             precio_actual = resultado["buy_price"]
             nombre_real = resultado["name"]
+
+            from_cache = resultado.get("from_cache", False)
+
+            origen = "CACHE" if from_cache else "STEAM"
+
+            registrar_precio_diario(
+                skin_name,
+                precio_actual,
+                precio_objetivo,
+                from_cache
+            )
+
+            print(
+                f"[{origen}] "
+                f"{skin_name} -> "
+                f"${precio_actual:.2f} | "
+                f"OBJETIVO: ${precio_objetivo:.2f} | "
+                f"TTL: "
+                f"{max(0, int(
+                    price_cache.get(skin_name, {}).get(
+                        "next_refresh", time.time()
+                    ) - time.time()
+                ))}s"
+            )
 
             # ==========================================
             # ALERTA
