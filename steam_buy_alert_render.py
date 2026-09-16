@@ -1483,7 +1483,17 @@ def worker(grupo_skins, worker_id):
             ).get("next_refresh", 0)
         )
 
-        for skin_name, precio_objetivo in grupo_ordenado:
+        for skin_name, datos_skin in grupo_ordenado:
+
+            datos_venta = obtener_datos_venta(skin_name)
+
+            if not datos_venta:
+                print(
+                    f"[ERROR] No hay datos de venta para {skin_name}"
+                )
+                continue
+
+            precio_objetivo = datos_venta["precio_objetivo"]
 
             # ==========================================
             # PAUSA GLOBAL STEAM
