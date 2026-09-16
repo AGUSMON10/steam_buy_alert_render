@@ -1261,9 +1261,6 @@ def buscar_precio(market_hash_name, session, proxy):
             buy_price
         )
 
-        # Guardar cache + historial en GitHub
-        guardar_estado()
-
         return {
             "buy_price": buy_price,
             "name": market_hash_name,
