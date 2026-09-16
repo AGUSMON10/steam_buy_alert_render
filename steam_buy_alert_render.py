@@ -773,17 +773,6 @@ def buscar_precio(market_hash_name, session, proxy):
         )
 
         # =========================
-        # LOG
-        # =========================
-
-        print(
-            f"[BUY] "
-            f"{market_hash_name} -> "
-            f"${buy_price:.2f} | "
-            f"TTL: {ttl:.0f}s"
-        )
-
-        # =========================
         # CACHE
         # =========================
 
