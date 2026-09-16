@@ -134,11 +134,228 @@ estado_app = {
     "ultimo_escaneo": None
 }
 
+historial_diario = {}
+fecha_stats = datetime.now(ZONA_ARG).date()
+ultima_fecha_resumen = None
+
 lock = threading.Lock()
-
-STATE_FILE = "bot_state.json"
-
+STATE_FILE = "buy_bot_state.json"
 price_cache = {}
+
+# =========================
+# PERSISTENCIA EN GITHUB
+# =========================
+
+def guardar_estado():
+    try:
+        github_token = os.environ.get("GITHUB_TOKEN")
+        github_repo = os.environ.get("GITHUB_REPO")
+
+        if not github_token or not github_repo:
+            print("[WARN] GITHUB_TOKEN o GITHUB_REPO no configurados")
+            return
+
+        with lock:
+            estado = {
+                "price_cache": price_cache,
+                "notificados": notificados,
+                "ciclo_numero": ciclo_numero,
+                "skins_revisadas_total": skins_revisadas_total,
+                "estado_app": estado_app,
+                "historial_diario": historial_diario,
+                "fecha_stats": fecha_stats,
+                "ultima_fecha_resumen": ultima_fecha_resumen
+            }
+
+        contenido = json.dumps(
+            estado,
+            ensure_ascii=False,
+            indent=2
+        )
+
+        import base64
+
+        contenido_base64 = base64.b64encode(
+            contenido.encode("utf-8")
+        ).decode("utf-8")
+
+        url = (
+            f"https://api.github.com/repos/"
+            f"{github_repo}/contents/{STATE_FILE}"
+        )
+
+        headers = {
+            "Authorization": f"Bearer {github_token}",
+            "Accept": "application/vnd.github+json"
+        }
+
+        # Buscar SHA del archivo existente
+        response = requests.get(
+            url,
+            headers=headers,
+            timeout=15
+        )
+
+        sha = None
+
+        if response.status_code == 200:
+            sha = response.json().get("sha")
+
+        datos = {
+            "message": "Actualizar buy_bot_state.json",
+            "content": contenido_base64
+        }
+
+        if sha:
+            datos["sha"] = sha
+
+        response = requests.put(
+            url,
+            headers=headers,
+            json=datos,
+            timeout=15
+        )
+
+        if response.status_code in (200, 201):
+            print("[GITHUB] Estado guardado correctamente")
+        else:
+            print(
+                f"[GITHUB ERROR] "
+                f"{response.status_code} | "
+                f"{response.text[:200]}"
+            )
+
+    except Exception as e:
+        print(
+            f"[GITHUB ERROR] No se pudo guardar estado: "
+            f"{type(e).__name__}: {e}"
+        )
+
+
+def cargar_estado():
+    global price_cache
+    global notificados
+    global ciclo_numero
+    global skins_revisadas_total
+    global estado_app
+    global historial_diario
+    global fecha_stats
+    global ultima_fecha_resumen
+
+    try:
+        github_token = os.environ.get("GITHUB_TOKEN")
+        github_repo = os.environ.get("GITHUB_REPO")
+
+        if not github_token or not github_repo:
+            print("[WARN] GITHUB_TOKEN o GITHUB_REPO no configurados")
+            return
+
+        url = (
+            f"https://api.github.com/repos/"
+            f"{github_repo}/contents/{STATE_FILE}"
+        )
+
+        headers = {
+            "Authorization": f"Bearer {github_token}",
+            "Accept": "application/vnd.github+json"
+        }
+
+        response = requests.get(
+            url,
+            headers=headers,
+            timeout=15
+        )
+
+        if response.status_code == 404:
+            print(
+                "[GITHUB] No existe buy_bot_state.json todavía. "
+                "Se creará automáticamente."
+            )
+            return
+
+        if response.status_code != 200:
+            print(
+                f"[GITHUB ERROR] No se pudo cargar estado: "
+                f"{response.status_code}"
+            )
+            return
+
+        import base64
+
+        contenido_base64 = response.json()["content"]
+
+        contenido = base64.b64decode(
+            contenido_base64
+        ).decode("utf-8")
+
+        estado = json.loads(contenido)
+
+        with lock:
+
+            price_cache = estado.get(
+                "price_cache",
+                {}
+            )
+
+            notificados = estado.get(
+                "notificados",
+                {}
+            )
+
+            ciclo_numero = estado.get(
+                "ciclo_numero",
+                0
+            )
+
+            skins_revisadas_total = estado.get(
+                "skins_revisadas_total",
+                0
+            )
+
+            estado_app_guardado = estado.get(
+                "estado_app"
+            )
+
+            if isinstance(
+                estado_app_guardado,
+                dict
+            ):
+                estado_app = estado_app_guardado
+
+            historial_guardado = estado.get(
+                "historial_diario"
+            )
+
+            if isinstance(
+                historial_guardado,
+                dict
+            ):
+                historial_diario = historial_guardado
+
+            fecha_stats_guardada = estado.get(
+                "fecha_stats"
+            )
+
+            if fecha_stats_guardada:
+                fecha_stats = fecha_stats_guardada
+
+            ultima_fecha_guardada = estado.get(
+                "ultima_fecha_resumen"
+            )
+
+            if ultima_fecha_guardada:
+                ultima_fecha_resumen = ultima_fecha_guardada
+
+        print(
+            f"[GITHUB] Estado recuperado correctamente | "
+            f"Cache: {len(price_cache)} skins"
+        )
+
+    except Exception as e:
+        print(
+            f"[GITHUB ERROR] No se pudo cargar estado: "
+            f"{type(e).__name__}: {e}"
+        )
 
 CACHE_MIN_TTL = 55
 CACHE_MAX_TTL = 190
@@ -426,20 +643,6 @@ def buscar_precio(market_hash_name, session, proxy):
                 stats_diarias["cache_hits"] += 1
 
             buy_price = cache_data.get("buy_price")
-
-            if buy_price is not None:
-                print(
-                    f"[CACHE HIT] "
-                    f"{market_hash_name} -> "
-                    f"BUY ${buy_price:.2f} | "
-                    f"Próxima consulta en "
-                    f"{int(next_refresh - ahora)}s"
-                )
-            else:
-                print(
-                    f"[CACHE HIT] "
-                    f"{market_hash_name} -> BUY N/A"
-                )
 
             return {
                 "buy_price": buy_price,
@@ -1116,6 +1319,9 @@ def worker(grupo_skins, worker_id):
 
             ultima_fecha_resumen = fecha_actual
 
+            # Guardar inmediatamente el nuevo estado del día
+            guardar_estado()
+
         inicio_ciclo = time.time()
 
         # ==========================================
@@ -1353,6 +1559,8 @@ def worker(grupo_skins, worker_id):
                     stats["alertas_enviadas"] += 1
                     stats_diarias["alertas_enviadas"] += 1
 
+                guardar_estado()
+
             # ==========================================
             # ESPERA CORTA ENTRE SKINS
             # ==========================================
@@ -1478,6 +1686,7 @@ def worker(grupo_skins, worker_id):
         # ==========================================
 
         limpiar_cache()
+        guardar_estado()
 
         # ==========================================
         # RESETEAR ESTADÍSTICAS DEL CICLO
@@ -1513,6 +1722,8 @@ def iniciar_servidor():
     app.run(host="0.0.0.0", port=8080, threaded=True, use_reloader=False)
 
 if __name__ == "__main__":
+
+    cargar_estado()
 
     grupos = dividir_skins_en_grupos()
 
