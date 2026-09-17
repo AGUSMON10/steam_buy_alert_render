@@ -1486,7 +1486,7 @@ def registrar_precio_diario(
         if precio_actual >= precio_objetivo:
             datos["alcanzo_objetivo"] = True
 
-def enviar_resumen_diario():
+def enviar_resumen_diario(manual=False):
     global historial_diario
 
     fecha = datetime.now(ZONA_ARG).strftime("%d/%m/%Y")
@@ -1622,8 +1622,13 @@ def enviar_resumen_diario():
             f"   🔎 Steam: {consultas} consultas"
         )
 
+    if manual:
+        titulo_resumen = "📊 RESUMEN HASTA AHORA"
+    else:
+        titulo_resumen = "📊 RESUMEN DIARIO"
+
     mensaje = (
-        f"📊 RESUMEN DIARIO\n"
+        f"{titulo_resumen}\n"
         f"📅 {fecha}\n\n"
 
         f"📈 Subieron: {subieron}\n"
@@ -1671,6 +1676,183 @@ def enviar_telegram(mensaje):
     except Exception as e:
         print(f"[ERROR] No se pudo enviar el mensaje a Telegram: {e}")
         estado_app["errores"] += 1
+
+# ==========================================================
+# COMANDOS DE TELEGRAM
+# ==========================================================
+
+def escuchar_telegram():
+    """
+    Escucha comandos enviados al bot desde Telegram.
+    """
+
+    print("[TELEGRAM] Escuchador de comandos iniciado")
+
+    offset = None
+    ultimo_resumen_manual = 0
+
+    try:
+
+        url_inicial = (
+            f"https://api.telegram.org/"
+            f"bot{TELEGRAM_BOT_TOKEN}/getUpdates"
+        )
+
+        respuesta_inicial = requests.get(
+            url_inicial,
+            params={
+                "timeout": 0
+            },
+            timeout=10
+        )
+
+        if respuesta_inicial.status_code == 200:
+
+            datos_iniciales = respuesta_inicial.json()
+
+            actualizaciones_pendientes = (
+                datos_iniciales.get("result", [])
+            )
+
+            if actualizaciones_pendientes:
+
+                offset = (
+                    actualizaciones_pendientes[-1]["update_id"] + 1
+                )
+
+                print(
+                    f"[TELEGRAM] Se descartaron "
+                    f"{len(actualizaciones_pendientes)} "
+                    f"actualizaciones pendientes"
+                )
+
+    except Exception as e:
+
+        print(
+            f"[TELEGRAM] No se pudieron limpiar "
+            f"actualizaciones pendientes: {e}"
+        )
+
+    while estado_app["activo"]:
+
+        try:
+
+            url = (
+                f"https://api.telegram.org/"
+                f"bot{TELEGRAM_BOT_TOKEN}/getUpdates"
+            )
+
+            params = {
+                "timeout": 25
+            }
+
+            if offset is not None:
+                params["offset"] = offset
+
+            response = requests.get(
+                url,
+                params=params,
+                timeout=35
+            )
+
+            if response.status_code != 200:
+
+                print(
+                    f"[TELEGRAM] Error getUpdates: "
+                    f"{response.status_code}"
+                )
+
+                # Telegram 409 = otra instancia está usando getUpdates
+                if response.status_code == 409:
+
+                    print(
+                        "[TELEGRAM] ERROR 409: "
+                        "hay otra instancia del bot usando getUpdates. "
+                        "Esperando 30 segundos..."
+                    )
+
+                    time.sleep(30)
+
+                else:
+
+                    time.sleep(5)
+
+                continue
+
+            data = response.json()
+
+            if not data.get("ok"):
+                time.sleep(5)
+                continue
+
+            updates = data.get("result", [])
+
+            for update in updates:
+
+                offset = update["update_id"] + 1
+
+                mensaje = update.get("message")
+
+                if not mensaje:
+                    continue
+
+                chat = mensaje.get("chat", {})
+                chat_id = str(chat.get("id"))
+
+                texto = mensaje.get("text", "").strip()
+
+                # ==========================================
+                # SEGURIDAD
+                # ==========================================
+
+                if chat_id != str(TELEGRAM_CHAT_ID):
+                    print(
+                        f"[TELEGRAM] Comando ignorado "
+                        f"desde chat no autorizado: {chat_id}"
+                    )
+                    continue
+
+                # ==========================================
+                # COMANDO /RESUMEN
+                # ==========================================
+
+                comando = texto.split()[0].lower() if texto else ""
+
+                if comando.startswith("/resumen"):
+
+                    ahora = time.time()
+
+                    if ahora - ultimo_resumen_manual < 30:
+
+                        print(
+                            "[TELEGRAM] /resumen ignorado: "
+                            "cooldown activo"
+                        )
+
+                        continue
+
+                    ultimo_resumen_manual = ahora
+
+                    print(
+                        "[TELEGRAM] Comando /resumen recibido"
+                    )
+
+                    enviar_resumen_diario(
+                        manual=True
+                    )
+                    
+        except requests.exceptions.Timeout:
+            # Timeout normal por long polling.
+            continue
+
+        except Exception as e:
+
+            print(
+                f"[TELEGRAM] Error escuchando comandos: "
+                f"{type(e).__name__}: {e}"
+            )
+
+            time.sleep(5)
 
 def dividir_skins_en_grupos():
 
@@ -2275,6 +2457,17 @@ def iniciar_servidor():
 if __name__ == "__main__":
 
     cargar_estado()
+
+    # ==========================================
+    # ESCUCHADOR DE COMANDOS DE TELEGRAM
+    # ==========================================
+
+    telegram_thread = threading.Thread(
+        target=escuchar_telegram,
+        daemon=True
+    )
+
+    telegram_thread.start()
 
     grupos = dividir_skins_en_grupos()
 
