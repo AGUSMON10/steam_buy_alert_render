@@ -1486,6 +1486,838 @@ def registrar_precio_diario(
         if precio_actual >= precio_objetivo:
             datos["alcanzo_objetivo"] = True
 
+def enviar_telegram_largo(mensaje, max_caracteres=3800):
+    """
+    Envía mensajes largos de Telegram divididos en varias partes.
+    """
+
+    if not mensaje:
+        return
+
+    bloques = mensaje.split("\n\n")
+    partes = []
+    actual = ""
+
+    for bloque in bloques:
+
+        bloque = bloque.strip()
+
+        if not bloque:
+            continue
+
+        candidato = (
+            f"{actual}\n\n{bloque}"
+            if actual
+            else bloque
+        )
+
+        if len(candidato) <= max_caracteres:
+
+            actual = candidato
+
+        else:
+
+            if actual:
+                partes.append(actual)
+
+            if len(bloque) <= max_caracteres:
+
+                actual = bloque
+
+            else:
+
+                for i in range(0, len(bloque), max_caracteres):
+                    partes.append(
+                        bloque[i:i + max_caracteres]
+                    )
+
+                actual = ""
+
+    if actual:
+        partes.append(actual)
+
+    for parte in partes:
+
+        enviar_telegram(parte)
+
+        time.sleep(0.5)
+
+
+def formatear_tiempo_desde(timestamp):
+    """
+    Convierte un timestamp en algo legible:
+    hace 20 segundos
+    hace 5 minutos
+    hace 2 horas
+    etc.
+    """
+
+    if not timestamp:
+        return "sin datos"
+
+    try:
+
+        segundos = max(
+            0,
+            time.time() - float(timestamp)
+        )
+
+    except Exception:
+
+        return "sin datos"
+
+    if segundos < 60:
+
+        return f"hace {int(segundos)} segundos"
+
+    minutos = segundos / 60
+
+    if minutos < 60:
+
+        return f"hace {int(minutos)} minutos"
+
+    horas = minutos / 60
+
+    if horas < 24:
+
+        return f"hace {int(horas)} horas"
+
+    dias = horas / 24
+
+    return f"hace {int(dias)} días"
+
+
+def obtener_precio_actual_comando(skin_name):
+
+    # Primero intentamos usar el cache actual
+    cache = price_cache.get(skin_name)
+
+    if cache:
+
+        precio = cache.get("buy_price")
+
+        if precio is not None:
+
+            return {
+                "precio": precio,
+                "fuente": "cache",
+                "timestamp": cache.get("timestamp")
+            }
+
+    # Si no hay cache, usamos la última observación real
+    historial = historial_precios.get(skin_name, [])
+
+    if historial:
+
+        observacion = historial[-1]
+
+        if isinstance(observacion, dict):
+
+            precio = observacion.get("precio")
+
+            if precio is None:
+                precio = observacion.get("buy_price")
+
+            if precio is not None:
+
+                return {
+                    "precio": precio,
+                    "fuente": "historial",
+                    "timestamp": observacion.get("timestamp")
+                }
+
+    return None
+
+
+def comando_estado():
+
+    ahora = time.time()
+
+    ciclo = ciclo_numero
+    revisadas = skins_revisadas_total
+
+    errores = estado_app.get("errores", 0)
+
+    ultimo_escaneo = estado_app.get(
+        "ultimo_escaneo"
+    )
+
+    stats = estado_app.get("stats", {})
+
+    requests_steam = stats.get(
+        "requests_steam",
+        0
+    )
+
+    requests_exitosas = stats.get(
+        "requests_exitosas",
+        0
+    )
+
+    requests_fallidas = stats.get(
+        "requests_fallidas",
+        0
+    )
+
+    cache_hits = stats.get(
+        "cache_hits",
+        0
+    )
+
+    proxies_activos = 0
+    proxies_cooldown = 0
+
+    for proxy in PROXIES:
+
+        hasta = PROXY_STATUS.get(
+            proxy,
+            0
+        )
+
+        if hasta and hasta > ahora:
+
+            proxies_cooldown += 1
+
+        else:
+
+            proxies_activos += 1
+
+    mensaje = (
+        "🤖 ESTADO DEL BOT\n\n"
+        f"🟢 Bot activo: {'Sí' if estado_app['activo'] else 'No'}\n"
+        f"🔄 Ciclo actual: {ciclo}\n"
+        f"🔎 Skins revisadas: {revisadas}\n"
+        f"⚠️ Errores: {errores}\n"
+        f"🕒 Último escaneo: "
+        f"{formatear_tiempo_desde(ultimo_escaneo)}\n\n"
+        "📡 STEAM\n"
+        f"Requests: {requests_steam}\n"
+        f"Exitosas: {requests_exitosas}\n"
+        f"Fallidas: {requests_fallidas}\n"
+        f"Cache hits: {cache_hits}\n\n"
+        "🌐 PROXIES\n"
+        f"Disponibles: {proxies_activos}\n"
+        f"En cooldown: {proxies_cooldown}\n"
+    )
+
+    if GLOBAL_429_PAUSE_UNTIL > ahora:
+
+        restante = int(
+            GLOBAL_429_PAUSE_UNTIL - ahora
+        )
+
+        mensaje += (
+            "\n🚨 PAUSA GLOBAL POR 429\n"
+            f"Restante: {restante} segundos\n"
+        )
+
+    else:
+
+        mensaje += (
+            "\n🟢 Sin pausa global por 429\n"
+        )
+
+    return mensaje
+
+
+def comando_precios():
+
+    mensaje = "💰 PRECIOS ACTUALES\n\n"
+
+    encontrados = 0
+
+    for skin_name, datos in skins_a_vigilar.items():
+
+        info = obtener_precio_actual_comando(
+            skin_name
+        )
+
+        if not info:
+
+            mensaje += (
+                f"🔹 {skin_name}\n"
+                "   ❓ Sin precio disponible\n\n"
+            )
+
+            continue
+
+        encontrados += 1
+
+        precio = info["precio"]
+        fuente = info["fuente"]
+
+        venta = obtener_datos_venta(
+            skin_name
+        )
+
+        if venta:
+
+            neto = calcular_neto_venta(
+                precio
+            )
+
+            diferencia = neto - venta["pagado"]
+
+            if diferencia >= 0:
+
+                resultado = (
+                    f"🟢 +${diferencia:.2f}"
+                )
+
+            else:
+
+                resultado = (
+                    f"🔻 -${abs(diferencia):.2f}"
+                )
+
+            objetivo = venta["precio_objetivo"]
+
+            if precio >= objetivo:
+
+                estado_objetivo = "🎯 OBJETIVO"
+
+            else:
+
+                faltante = (
+                    (objetivo - precio)
+                    / objetivo
+                    * 100
+                )
+
+                estado_objetivo = (
+                    f"📉 Falta {faltante:.1f}%"
+                )
+
+            mensaje += (
+                f"🔹 {skin_name}\n"
+                f"   💵 Buy Order: ${precio:.2f}\n"
+                f"   💰 Neto venta: ${neto:.2f}\n"
+                f"   🧾 Pagaste: ${venta['pagado']:.2f}\n"
+                f"   {resultado}\n"
+                f"   {estado_objetivo}\n"
+                f"   📡 {fuente} "
+                f"({formatear_tiempo_desde(info['timestamp'])})\n\n"
+            )
+
+        else:
+
+            mensaje += (
+                f"🔹 {skin_name}\n"
+                f"   💵 Buy Order: ${precio:.2f}\n\n"
+            )
+
+    if encontrados == 0:
+
+        mensaje += (
+            "❌ No hay precios actuales "
+            "disponibles todavía."
+        )
+
+    return mensaje
+
+
+def comando_objetivos():
+
+    candidatos = []
+
+    for skin_name in skins_a_vigilar:
+
+        venta = obtener_datos_venta(
+            skin_name
+        )
+
+        if not venta:
+            continue
+
+        info = obtener_precio_actual_comando(
+            skin_name
+        )
+
+        if not info:
+            continue
+
+        precio = info["precio"]
+        objetivo = venta["precio_objetivo"]
+
+        if objetivo <= 0:
+            continue
+
+        distancia = (
+            (objetivo - precio)
+            / objetivo
+            * 100
+        )
+
+        if distancia <= 20:
+
+            candidatos.append(
+                (
+                    distancia,
+                    skin_name,
+                    precio,
+                    objetivo
+                )
+            )
+
+    candidatos.sort(
+        key=lambda x: x[0]
+    )
+
+    if not candidatos:
+
+        return (
+            "🎯 OBJETIVOS\n\n"
+            "No hay skins dentro del "
+            "20% del precio objetivo."
+        )
+
+    mensaje = (
+        "🎯 SKINS CERCA DEL OBJETIVO\n\n"
+    )
+
+    for distancia, skin_name, precio, objetivo in candidatos:
+
+        if distancia <= 0:
+
+            estado = "🟢 OBJETIVO ALCANZADO"
+
+        else:
+
+            estado = (
+                f"📉 Falta {distancia:.1f}%"
+            )
+
+        mensaje += (
+            f"🔹 {skin_name}\n"
+            f"   💵 Actual: ${precio:.2f}\n"
+            f"   🎯 Objetivo: ${objetivo:.2f}\n"
+            f"   {estado}\n\n"
+        )
+
+    return mensaje
+
+
+def comando_alertas():
+
+    ahora = time.time()
+    limite = ahora - 86400
+
+    recientes = []
+
+    for skin_name, timestamp in alertas_caida.items():
+
+        try:
+
+            timestamp = float(timestamp)
+
+        except Exception:
+
+            continue
+
+        if timestamp >= limite:
+
+            recientes.append(
+                (
+                    timestamp,
+                    skin_name
+                )
+            )
+
+    recientes.sort(
+        reverse=True
+    )
+
+    if not recientes:
+
+        return (
+            "🚨 ALERTAS DE CAÍDA\n\n"
+            "No hubo alertas de caída "
+            "en las últimas 24 horas."
+        )
+
+    mensaje = (
+        "🚨 ALERTAS DE CAÍDA — ÚLTIMAS 24H\n\n"
+    )
+
+    for timestamp, skin_name in recientes:
+
+        analisis = obtener_analisis_historial(
+            skin_name
+        )
+
+        mensaje += (
+            f"🔻 {skin_name}\n"
+            f"   🕒 {formatear_tiempo_desde(timestamp)}\n"
+        )
+
+        if analisis:
+
+            v1 = analisis.get(
+                "variacion_1h"
+            )
+
+            v3 = analisis.get(
+                "variacion_3h"
+            )
+
+            v6 = analisis.get(
+                "variacion_6h"
+            )
+
+            if v1 is not None:
+
+                mensaje += (
+                    f"   📉 1h: {v1:+.1f}%\n"
+                )
+
+            if v3 is not None:
+
+                mensaje += (
+                    f"   📉 3h: {v3:+.1f}%\n"
+                )
+
+            if v6 is not None:
+
+                mensaje += (
+                    f"   📉 6h: {v6:+.1f}%\n"
+                )
+
+        mensaje += "\n"
+
+    return mensaje
+
+
+def comando_top():
+
+    datos = []
+
+    for skin_name, info in historial_diario.items():
+
+        inicial = info.get("inicial")
+        actual = info.get("actual")
+
+        if inicial is None or actual is None:
+            continue
+
+        try:
+
+            inicial = float(inicial)
+            actual = float(actual)
+
+        except Exception:
+
+            continue
+
+        if inicial <= 0:
+            continue
+
+        variacion = (
+            (actual - inicial)
+            / inicial
+            * 100
+        )
+
+        datos.append(
+            (
+                variacion,
+                skin_name,
+                inicial,
+                actual
+            )
+        )
+
+    if not datos:
+
+        return (
+            "📈 TOP DEL DÍA\n\n"
+            "Todavía no hay suficientes "
+            "datos diarios."
+        )
+
+    subidas = sorted(
+        datos,
+        key=lambda x: x[0],
+        reverse=True
+    )[:5]
+
+    bajadas = sorted(
+        datos,
+        key=lambda x: x[0]
+    )[:5]
+
+    mensaje = "📈 TOP DEL DÍA\n\n"
+
+    mensaje += "🟢 MAYORES SUBIDAS\n\n"
+
+    for variacion, skin_name, inicial, actual in subidas:
+
+        mensaje += (
+            f"🔹 {skin_name}\n"
+            f"   ${inicial:.2f} → ${actual:.2f}\n"
+            f"   📈 {variacion:+.1f}%\n\n"
+        )
+
+    mensaje += "🔻 MAYORES BAJADAS\n\n"
+
+    for variacion, skin_name, inicial, actual in bajadas:
+
+        mensaje += (
+            f"🔹 {skin_name}\n"
+            f"   ${inicial:.2f} → ${actual:.2f}\n"
+            f"   📉 {variacion:+.1f}%\n\n"
+        )
+
+    return mensaje
+
+
+def buscar_skin_por_texto(texto):
+
+    texto = texto.strip()
+
+    if not texto:
+        return None
+
+    texto_normalizado = normalizar(
+        texto
+    )
+
+    # Coincidencia exacta
+    for skin_name in skins_a_vigilar:
+
+        if normalizar(skin_name) == texto_normalizado:
+
+            return skin_name
+
+    # Coincidencia parcial
+    coincidencias = []
+
+    for skin_name in skins_a_vigilar:
+
+        if texto_normalizado in normalizar(
+            skin_name
+        ):
+
+            coincidencias.append(
+                skin_name
+            )
+
+    if len(coincidencias) == 1:
+
+        return coincidencias[0]
+
+    return None
+
+
+def comando_historial(argumento):
+
+    if not argumento.strip():
+
+        return (
+            "📊 HISTORIAL\n\n"
+            "Uso:\n"
+            "/historial Nombre de la skin\n\n"
+            "Ejemplo:\n"
+            "/historial M4A4 | Asiimov (Well-Worn)"
+        )
+
+    skin_name = buscar_skin_por_texto(
+        argumento
+    )
+
+    if not skin_name:
+
+        return (
+            "❌ No encontré una única skin "
+            "con ese nombre.\n\n"
+            "Probá usando el nombre completo."
+        )
+
+    analisis = obtener_analisis_historial(
+        skin_name
+    )
+
+    if not analisis:
+
+        return (
+            f"📊 {skin_name}\n\n"
+            "Todavía no hay suficiente "
+            "historial registrado."
+        )
+
+    info_actual = obtener_precio_actual_comando(
+        skin_name
+    )
+
+    mensaje = (
+        f"📊 HISTORIAL\n\n"
+        f"🔹 {skin_name}\n\n"
+    )
+
+    if info_actual:
+
+        mensaje += (
+            f"💵 Actual: ${info_actual['precio']:.2f}\n"
+        )
+
+    periodos = [
+        ("1h", "precio_1h", "variacion_1h"),
+        ("3h", "precio_3h", "variacion_3h"),
+        ("6h", "precio_6h", "variacion_6h"),
+        ("24h", "precio_24h", "variacion_24h"),
+    ]
+
+    for nombre, clave_precio, clave_variacion in periodos:
+
+        precio = analisis.get(
+            clave_precio
+        )
+
+        variacion = analisis.get(
+            clave_variacion
+        )
+
+        if precio is None:
+
+            mensaje += (
+                f"📉 {nombre}: sin datos\n"
+            )
+
+        elif variacion is None:
+
+            mensaje += (
+                f"📉 {nombre}: ${precio:.2f}\n"
+            )
+
+        else:
+
+            mensaje += (
+                f"📉 {nombre}: "
+                f"${precio:.2f} "
+                f"({variacion:+.1f}%)\n"
+            )
+
+    venta = obtener_datos_venta(
+        skin_name
+    )
+
+    if venta and info_actual:
+
+        precio = info_actual["precio"]
+
+        neto = calcular_neto_venta(
+            precio
+        )
+
+        diferencia = (
+            neto - venta["pagado"]
+        )
+
+        mensaje += (
+            "\n💰 DATOS DE VENTA\n"
+            f"Pagaste: ${venta['pagado']:.2f}\n"
+            f"Neto actual: ${neto:.2f}\n"
+        )
+
+        if diferencia >= 0:
+
+            mensaje += (
+                f"🟢 Ganancia: ${diferencia:.2f}\n"
+            )
+
+        else:
+
+            mensaje += (
+                f"🔻 Pérdida: ${abs(diferencia):.2f}\n"
+            )
+
+        mensaje += (
+            f"🎯 Objetivo: "
+            f"${venta['precio_objetivo']:.2f}\n"
+        )
+
+    return mensaje
+
+
+def procesar_comando_telegram(texto):
+
+    texto = texto.strip()
+
+    if not texto:
+
+        return None
+
+    partes = texto.split(
+        maxsplit=1
+    )
+
+    comando = partes[0].lower()
+
+    argumento = (
+        partes[1].strip()
+        if len(partes) > 1
+        else ""
+    )
+
+    # Permite /estado@NombreDelBot
+    if "@" in comando:
+
+        comando = comando.split(
+            "@",
+            1
+        )[0]
+
+    if comando in (
+        "/ayuda",
+        "/start"
+    ):
+
+        return (
+            "🤖 COMANDOS DISPONIBLES\n\n"
+            "/resumen — resumen del día hasta ahora\n"
+            "/estado — estado general del bot\n"
+            "/precios — precios actuales\n"
+            "/objetivos — skins cerca del objetivo\n"
+            "/alertas — alertas de caída recientes\n"
+            "/top — mayores subidas y bajadas del día\n"
+            "/historial Nombre — historial de una skin\n"
+            "/ayuda — mostrar esta ayuda"
+        )
+
+    if comando == "/resumen":
+
+        return "RESUMEN_DIARIO"
+
+    if comando == "/estado":
+
+        return comando_estado()
+
+    if comando == "/precios":
+
+        return comando_precios()
+
+    if comando == "/objetivos":
+
+        return comando_objetivos()
+
+    if comando == "/alertas":
+
+        return comando_alertas()
+
+    if comando == "/top":
+
+        return comando_top()
+
+    if comando == "/historial":
+
+        return comando_historial(
+            argumento
+        )
+
+    return (
+        "❓ Comando desconocido.\n\n"
+        "Usá /ayuda para ver los comandos disponibles."
+    )
+
 def enviar_resumen_diario(manual=False):
     global historial_diario
 
@@ -1782,7 +2614,9 @@ def escuchar_telegram():
             data = response.json()
 
             if not data.get("ok"):
+
                 time.sleep(5)
+
                 continue
 
             updates = data.get("result", [])
@@ -1797,28 +2631,45 @@ def escuchar_telegram():
                     continue
 
                 chat = mensaje.get("chat", {})
-                chat_id = str(chat.get("id"))
 
-                texto = mensaje.get("text", "").strip()
+                chat_id = str(
+                    chat.get("id")
+                )
+
+                texto = mensaje.get(
+                    "text",
+                    ""
+                ).strip()
 
                 # ==========================================
                 # SEGURIDAD
                 # ==========================================
 
                 if chat_id != str(TELEGRAM_CHAT_ID):
+
                     print(
                         f"[TELEGRAM] Comando ignorado "
                         f"desde chat no autorizado: {chat_id}"
                     )
+
                     continue
 
                 # ==========================================
-                # COMANDO /RESUMEN
+                # PROCESAR COMANDO
                 # ==========================================
 
-                comando = texto.split()[0].lower() if texto else ""
+                resultado = procesar_comando_telegram(
+                    texto
+                )
 
-                if comando.startswith("/resumen"):
+                if resultado is None:
+                    continue
+
+                # ==========================================
+                # /RESUMEN
+                # ==========================================
+
+                if resultado == "RESUMEN_DIARIO":
 
                     ahora = time.time()
 
@@ -1840,8 +2691,24 @@ def escuchar_telegram():
                     enviar_resumen_diario(
                         manual=True
                     )
-                    
+
+                    continue
+
+                # ==========================================
+                # OTROS COMANDOS
+                # ==========================================
+
+                print(
+                    f"[TELEGRAM] Comando recibido: "
+                    f"{texto}"
+                )
+
+                enviar_telegram_largo(
+                    resultado
+                )
+
         except requests.exceptions.Timeout:
+
             # Timeout normal por long polling.
             continue
 
@@ -1853,7 +2720,6 @@ def escuchar_telegram():
             )
 
             time.sleep(5)
-
 def dividir_skins_en_grupos():
 
     lista = list(skins_a_vigilar.items())
