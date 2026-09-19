@@ -2937,6 +2937,19 @@ def worker(grupo_skins, worker_id):
                     for skin in skins_a_vigilar
                 }
 
+                # ==========================================
+                # RESETEAR ESTADÍSTICAS DEL NUEVO DÍA
+                # ==========================================
+
+                stats_diarias["ciclos"] = 0
+                stats_diarias["skins_revisadas"] = 0
+                stats_diarias["requests_steam"] = 0
+                stats_diarias["requests_exitosas"] = 0
+                stats_diarias["requests_fallidas"] = 0
+                stats_diarias["cache_hits"] = 0
+                stats_diarias["alertas_enviadas"] = 0
+                stats_diarias["pausas_programadas"] = 0
+
             ultima_fecha_resumen = fecha_actual
 
             # Guardar inmediatamente el nuevo estado del día
