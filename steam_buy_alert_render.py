@@ -197,7 +197,8 @@ ciclo_numero = 0
 estado_app = {
     "activo": True,
     "errores": 0,
-    "ultimo_escaneo": None
+    "ultimo_escaneo": None,
+    "inicio_bot": time.time()
 }
 
 historial_diario = {}
@@ -234,6 +235,7 @@ def guardar_estado():
                 "estado_app": estado_app,
                 "historial_diario": historial_diario,
                 "fecha_stats": fecha_stats,
+                "stats_diarias": stats_diarias,
                 "historial_precios": historial_precios,
                 "ultima_fecha_resumen": ultima_fecha_resumen
             }
@@ -313,6 +315,7 @@ def cargar_estado():
     global estado_app
     global historial_diario
     global fecha_stats
+    global stats_diarias
     global ultima_fecha_resumen
 
     try:
@@ -414,6 +417,16 @@ def cargar_estado():
             ):
                 estado_app = estado_app_guardado
 
+            stats_diarias_guardadas = estado.get(
+                "stats_diarias"
+            )
+
+            if isinstance(
+                stats_diarias_guardadas,
+                dict
+            ):
+                stats_diarias = stats_diarias_guardadas
+
             historial_guardado = estado.get(
                 "historial_diario"
             )
@@ -470,6 +483,7 @@ stats = {
 
 stats_diarias = {
     "ciclos": 0,
+    "skins_revisadas": 0,
     "requests_steam": 0,
     "requests_exitosas": 0,
     "requests_fallidas": 0,
@@ -1633,38 +1647,117 @@ def comando_estado():
 
     ahora = time.time()
 
-    ciclo = ciclo_numero
-    revisadas = skins_revisadas_total
+    # ==========================================
+    # ESTADÍSTICAS DEL CICLO ACTUAL
+    # ==========================================
 
-    errores = estado_app.get("errores", 0)
+    with lock:
 
-    ultimo_escaneo = estado_app.get(
-        "ultimo_escaneo"
-    )
+        ciclo_actual = ciclo_numero
+        skins_ciclo = skins_revisadas_total
 
-    stats = estado_app.get("stats", {})
+        requests_ciclo = stats.get(
+            "requests_steam",
+            0
+        )
 
-    requests_steam = stats.get(
-        "requests_steam",
-        0
-    )
+        exitosas_ciclo = stats.get(
+            "requests_exitosas",
+            0
+        )
 
-    requests_exitosas = stats.get(
-        "requests_exitosas",
-        0
-    )
+        fallidas_ciclo = stats.get(
+            "requests_fallidas",
+            0
+        )
 
-    requests_fallidas = stats.get(
-        "requests_fallidas",
-        0
-    )
+        cache_ciclo = stats.get(
+            "cache_hits",
+            0
+        )
 
-    cache_hits = stats.get(
-        "cache_hits",
-        0
-    )
+        alertas_ciclo = stats.get(
+            "alertas_enviadas",
+            0
+        )
 
-    proxies_activos = 0
+        tiempo_consultas = stats.get(
+            "tiempo_consultas",
+            0.0
+        )
+
+        # ======================================
+        # ESTADÍSTICAS DEL DÍA
+        # ======================================
+
+        ciclos_dia = stats_diarias.get(
+            "ciclos",
+            0
+        )
+
+        skins_dia = stats_diarias.get(
+            "skins_revisadas",
+            0
+        )
+
+        requests_dia = stats_diarias.get(
+            "requests_steam",
+            0
+        )
+
+        exitosas_dia = stats_diarias.get(
+            "requests_exitosas",
+            0
+        )
+
+        fallidas_dia = stats_diarias.get(
+            "requests_fallidas",
+            0
+        )
+
+        cache_dia = stats_diarias.get(
+            "cache_hits",
+            0
+        )
+
+        alertas_dia = stats_diarias.get(
+            "alertas_enviadas",
+            0
+        )
+
+        pausas_dia = stats_diarias.get(
+            "pausas_programadas",
+            0
+        )
+
+        ultimo_escaneo = estado_app.get(
+            "ultimo_escaneo"
+        )
+
+    # ==========================================
+    # TIEMPO PROMEDIO
+    # ==========================================
+
+    if requests_ciclo > 0:
+
+        promedio = (
+            tiempo_consultas
+            / requests_ciclo
+        )
+
+        promedio_texto = (
+            f"{promedio:.2f}s"
+        )
+
+    else:
+
+        promedio_texto = "sin datos"
+
+    # ==========================================
+    # PROXIES
+    # ==========================================
+
+    proxies_disponibles = 0
     proxies_cooldown = 0
 
     for proxy in PROXIES:
@@ -1674,51 +1767,118 @@ def comando_estado():
             0
         )
 
-        if hasta and hasta > ahora:
+        if hasta > ahora:
 
             proxies_cooldown += 1
 
         else:
 
-            proxies_activos += 1
+            proxies_disponibles += 1
 
-    mensaje = (
-        "🤖 ESTADO DEL BOT\n\n"
-        f"🟢 Bot activo: {'Sí' if estado_app['activo'] else 'No'}\n"
-        f"🔄 Ciclo actual: {ciclo}\n"
-        f"🔎 Skins revisadas: {revisadas}\n"
-        f"⚠️ Errores: {errores}\n"
-        f"🕒 Último escaneo: "
-        f"{formatear_tiempo_desde(ultimo_escaneo)}\n\n"
-        "📡 STEAM\n"
-        f"Requests: {requests_steam}\n"
-        f"Exitosas: {requests_exitosas}\n"
-        f"Fallidas: {requests_fallidas}\n"
-        f"Cache hits: {cache_hits}\n\n"
-        "🌐 PROXIES\n"
-        f"Disponibles: {proxies_activos}\n"
-        f"En cooldown: {proxies_cooldown}\n"
-    )
+    # ==========================================
+    # PAUSA GLOBAL 429
+    # ==========================================
 
     if GLOBAL_429_PAUSE_UNTIL > ahora:
 
-        restante = int(
+        restante_429 = int(
             GLOBAL_429_PAUSE_UNTIL - ahora
         )
 
-        mensaje += (
-            "\n🚨 PAUSA GLOBAL POR 429\n"
-            f"Restante: {restante} segundos\n"
+        estado_429 = (
+            f"🚨 ACTIVA "
+            f"({restante_429}s restantes)"
         )
 
     else:
 
-        mensaje += (
-            "\n🟢 Sin pausa global por 429\n"
-        )
+        estado_429 = "🟢 No activa"
+
+    # ==========================================
+    # MENSAJE
+    # ==========================================
+
+    mensaje = (
+        "🤖 ESTADO DEL BOT\n\n"
+
+        f"🟢 Bot activo: "
+        f"{'Sí' if estado_app['activo'] else 'No'}\n"
+
+        f"🔄 Ciclo actual: "
+        f"{ciclo_actual}\n"
+
+        f"🔎 Skins revisadas ciclo: "
+        f"{skins_ciclo}/{len(skins_a_vigilar)}\n"
+
+        f"📊 Ciclos hoy: "
+        f"{ciclos_dia}\n"
+
+        f"📅 Skins revisadas hoy: "
+        f"{skins_dia}\n"
+
+        f"🕒 Último escaneo: "
+        f"{formatear_tiempo_desde(ultimo_escaneo)}\n"
+
+        f"⚠️ Errores: "
+        f"{estado_app.get('errores', 0)}\n\n"
+
+        "📡 STEAM — CICLO ACTUAL\n"
+
+        f"Requests: "
+        f"{requests_ciclo}\n"
+
+        f"Exitosas: "
+        f"{exitosas_ciclo}\n"
+
+        f"Fallidas: "
+        f"{fallidas_ciclo}\n"
+
+        f"Cache hits: "
+        f"{cache_ciclo}\n"
+
+        f"Alertas: "
+        f"{alertas_ciclo}\n"
+
+        f"Promedio request: "
+        f"{promedio_texto}\n\n"
+
+        "📊 STEAM — HOY\n"
+
+        f"Requests: "
+        f"{requests_dia}\n"
+
+        f"Exitosas: "
+        f"{exitosas_dia}\n"
+
+        f"Fallidas: "
+        f"{fallidas_dia}\n"
+
+        f"Cache hits: "
+        f"{cache_dia}\n"
+
+        f"Alertas: "
+        f"{alertas_dia}\n"
+
+        f"Pausas programadas: "
+        f"{pausas_dia}\n\n"
+
+        "🌐 PROXIES\n"
+
+        f"Disponibles: "
+        f"{proxies_disponibles}\n"
+
+        f"En cooldown: "
+        f"{proxies_cooldown}\n\n"
+
+        "🚨 STEAM 429\n"
+
+        f"{estado_429}\n\n"
+
+        f"💾 Cache actual: "
+        f"{len(price_cache)} skins"
+    )
 
     return mensaje
-
 
 def comando_precios():
 
@@ -2946,6 +3106,7 @@ def worker(grupo_skins, worker_id):
 
             with lock:
                 skins_revisadas_total += 1
+                stats_diarias["skins_revisadas"] += 1
 
             # ==========================================
             # RESULTADO INVÁLIDO
